@@ -63,9 +63,11 @@ export function generatePromptInduk(
       return; // Omit unchecked items if cleaning unused lines
     }
     const checkMark = item.enabled ? '[x]' : '[ ]';
-    if (item.label.includes('Slide penutup')) {
-      const urlText = item.customNote ? item.customNote : (cleanUnusedLines ? '' : '[URL atau hapus]');
-      lines.push(`${checkMark} Slide penutup/tautan lanjutan: ${urlText}`);
+    if (item.customNote && item.customNote.trim()) {
+      lines.push(`${checkMark} ${item.label}: ${item.customNote.trim()}`);
+    } else if (item.label.toLowerCase().includes('slide penutup') || item.label.toLowerCase().includes('tautan lanjutan')) {
+      const urlText = cleanUnusedLines ? '' : ': [URL atau hapus]';
+      lines.push(`${checkMark} ${item.label}${urlText}`);
     } else {
       lines.push(`${checkMark} ${item.label}`);
     }

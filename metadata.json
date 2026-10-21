@@ -1,0 +1,6 @@
+{
+  "name": "Generator Prompt Slide Materi Ajar",
+  "description": "Generator prompt induk pembuatan slide materi ajar interaktif Kurikulum Merdeka bergaya vintage postmodernism neobrutalist colorful pastel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

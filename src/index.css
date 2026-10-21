@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-paper: #FAF7F2;
+    --border-ink: #1C1917;
+  }
+
+  body {
+    background-color: var(--bg-paper);
+    color: #1C1917;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-serif-vintage {
+    font-family: 'Fraunces', Georgia, serif;
+  }
+
+  .font-heading {
+    font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  }
+
+  code, pre, .font-mono-code {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Postmodern Neobrutalist Subtle Accents */
+.vintage-dot-bg {
+  background-image: radial-gradient(#d6cfc4 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.neo-shadow {
+  box-shadow: 3px 3px 0px #1C1917;
+}
+
+.neo-shadow-sm {
+  box-shadow: 2px 2px 0px #1C1917;
+}
+
+.neo-shadow-lg {
+  box-shadow: 5px 5px 0px #1C1917;
+}
+
+.neo-shadow-hover {
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.neo-shadow-hover:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #1C1917;
+}
+
+.neo-shadow-hover:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #1C1917;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F2ECE1;
+  border-left: 1px solid #E4DCD0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C4B9A7;
+  border-radius: 4px;
+  border: 1px solid #1C1917;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9C8E7B;
+}

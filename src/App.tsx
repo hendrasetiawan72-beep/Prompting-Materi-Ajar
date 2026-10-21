@@ -87,6 +87,9 @@ export default function App() {
         hasilAsesmen: 'tidak dikirim',
         quizSettings: {
           web3formKey: '',
+          submissionTarget: 'appscript',
+          appScriptUrl: '',
+          sheetName: 'Nilai_Siswa',
           namaGuru: '',
           bentukSoal: 'pilihan ganda',
           hitungNilaiLangsung: true,

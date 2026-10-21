@@ -123,7 +123,17 @@ export function generatePromptInduk(
 
   const q = data.quizSettings;
   const web3KeyText = q.web3formKey ? q.web3formKey : (cleanUnusedLines ? 'tidak ada / lewati' : '[ tempel disini ]');
-  lines.push(`*Jika menggunakan format quiz, masukkan form acces kode Web3form: [ ${web3KeyText} ]`);
+  const appScriptText = q.appScriptUrl ? q.appScriptUrl : (cleanUnusedLines ? 'tidak ada / lewati' : '[ tempel Web App URL Google Apps Script disini ]');
+
+  lines.push(`Target pengiriman: [${q.submissionTarget === 'appscript' ? 'Google Spreadsheet (via Google Apps Script Web App)' : q.submissionTarget === 'web3forms' ? 'Email Guru (via Web3Forms)' : 'Keduanya (Google Spreadsheet & Web3Forms)'}]`);
+  if (q.submissionTarget === 'web3forms' || q.submissionTarget === 'both') {
+    lines.push(`*Jika menggunakan format quiz via Web3form, masukkan form access kode Web3form: [ ${web3KeyText} ]`);
+  }
+  if (q.submissionTarget === 'appscript' || q.submissionTarget === 'both') {
+    lines.push(`*Jika mengirim ke Google Spreadsheet, masukkan Web App URL Google Apps Script: [ ${appScriptText} ]`);
+    lines.push(`Nama sheet tujuan di Google Spreadsheet: [ ${q.sheetName || 'Nilai_Siswa'} ]`);
+  }
+
   lines.push(`Format quiz harus memasukkan nama dan kelas siswa, bentuk soal [ ${q.bentukSoal} ]`);
   lines.push(`Sediakan tombol akses kirim ke guru [${q.namaGuru || 'nama guru'}]`);
 
@@ -203,7 +213,8 @@ export function generatePromptInduk(
     lines.push('- Interaksi sesuai aktivitas terpilih: pilihan dengan umpan balik, kartu balik, audio TTS (hanya jika perlu), video embed (berhenti saat pindah slide).');
     lines.push('- Kuis: skor dihitung sesuai A.6.');
     lines.push('- Pengiriman hasil (jika dipilih): isi nama dan kelas dulu, semua soal wajib dijawab, kirim sekali per siswa, status berhasil/gagal jelas.');
-    lines.push('- Semua hal yang harus diganti guru memakai placeholder mudah dicari, mis. GANTI-LOGO, GANTI-KUNCI-FORMULIR, GANTI-URL.');
+    lines.push('- Pengiriman ke Google Spreadsheet (Apps Script): Gunakan fetch POST ke URL Apps Script dengan data JSON/FormData (timestamp, nama, kelas, skor, durasi, jawaban/esai). Berikan umpan balik loading dan konfirmasi terkirim.');
+    lines.push('- Semua hal yang harus diganti guru memakai placeholder mudah dicari, mis. GANTI-LOGO, GANTI-KUNCI-FORMULIR, GANTI-URL-APPSCRIPT, GANTI-URL.');
     lines.push('- Integrasi Media: Sisipkan Lampiran HTML Logo Sekolah di sudut atas slide, Lampiran HTML Background di wrapper slide, Lampiran HTML Media Materi pada slide konsep/kegiatan, dan Lampiran HTML Media Soal pada kartu kuis.');
     lines.push('- Hormati prefers-reduced-motion; kontras teks cukup.');
     lines.push('');
@@ -212,7 +223,7 @@ export function generatePromptInduk(
     lines.push('Tahap 1: Tulis asumsi (maks 5 baris), lalu peta slide dalam tabel: No | Judul | Tujuan | Aktivitas | Durasi | Bukti belajar.');
     lines.push('Jika mode "rancangan dulu", berhenti di sini dan tanya: lanjut atau revisi?');
     lines.push('Tahap 2: Hasilkan keluaran sesuai A.7.');
-    lines.push('Tahap 3: Lampiran: kunci jawaban, rubrik, catatan guru (tips fasilitasi, antisipasi miskonsepsi), dan 3 saran penyesuaian untuk kelas lain.');
+    lines.push('Tahap 3: Lampiran: kunci jawaban, rubrik, catatan guru (tips fasilitasi, antisipasi miskonsepsi), 3 saran penyesuaian untuk kelas lain, dan kode Google Apps Script (doPost) siap pakai jika memilih pengiriman ke Google Spreadsheet.');
     lines.push('Tanpa basa-basi.');
   }
 

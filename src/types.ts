@@ -17,6 +17,9 @@ export interface AlurItem {
 
 export interface QuizSettings {
   web3formKey: string;
+  submissionTarget: 'web3forms' | 'appscript' | 'both';
+  appScriptUrl: string;
+  sheetName: string;
   namaGuru: string;
   bentukSoal: 'pilihan ganda' | 'essay' | 'campuran pilihan ganda & essay';
   hitungNilaiLangsung: boolean;

@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
 import { PromptFormData, AssessmentType, SubmissionType, OutputFormatType, WorkModeType } from '../types';
-import { ShieldAlert, Award, FileCode, Clock, Lock, Send, Layers, Image, Video, Eye } from 'lucide-react';
+import {
+  ShieldAlert,
+  Award,
+  FileCode,
+  Clock,
+  Lock,
+  Send,
+  Layers,
+  Image,
+  Video,
+  Eye,
+  FileSpreadsheet,
+  HelpCircle,
+  Copy,
+  Check,
+  ExternalLink,
+} from 'lucide-react';
 
 interface SectionAsesmenOutputProps {
   data: PromptFormData;
@@ -12,6 +28,8 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
   onChange,
 }) => {
   const [showSoalMediaPreview, setShowSoalMediaPreview] = useState(true);
+  const [showScriptHelper, setShowScriptHelper] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   const updateQuiz = (key: keyof PromptFormData['quizSettings'], value: any) => {
     onChange('quizSettings', {
@@ -20,7 +38,51 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
     });
   };
 
-  const isHtmlFormat = data.formatKeluaran === 'C';
+  const appScriptCode = `// KODE GOOGLE APPS SCRIPT (doPost)
+// 1. Buat Google Spreadsheet baru
+// 2. Klik menu Ekstensi > Apps Script
+// 3. Hapus kode bawaan dan tempel kode berikut:
+
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = "${data.quizSettings.sheetName || 'Nilai_Siswa'}";
+    var sheet = ss.getSheetByName(sheetName) || ss.getActiveSheet();
+    
+    // Header otomatis jika baris masih kosong
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(["Timestamp", "Nama Siswa", "Kelas", "Skor", "Lama Pengerjaan", "Jawaban / Esai"]);
+      sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#FEF08A");
+    }
+    
+    var data = JSON.parse(e.postData.contents);
+    sheet.appendRow([
+      new Date(),
+      data.nama || "",
+      data.kelas || "",
+      data.skor || 0,
+      data.lamaPengerjaan || "",
+      typeof data.jawaban === "object" ? JSON.stringify(data.jawaban) : (data.jawaban || data.esai || "")
+    ]);
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Data berhasil disimpan ke Spreadsheet!" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// 4. Klik Terapkan (Deploy) > Deployment baru
+// 5. Pilih jenis "Aplikasi Web" (Web app)
+// 6. Pada "Akses" (Who has access), pilih "Siapa saja" (Anyone)
+// 7. Salin URL yang dihasilkan (berakhiran /exec) dan tempel ke kolom di aplikasi ini.`;
+
+  const handleCopyScript = () => {
+    navigator.clipboard.writeText(appScriptCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
 
   return (
     <div className="space-y-6">
@@ -32,7 +94,7 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
               6
             </span>
             <h3 className="font-heading font-bold text-sm tracking-tight text-stone-900 uppercase">
-              Bagian 6: Asesmen, Format Kuis & Keamanan Ujian
+              Bagian 6: Asesmen, Format Kuis & Pengiriman Nilai
             </h3>
           </div>
           <Award className="w-4 h-4 text-purple-900" />
@@ -94,13 +156,42 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
             </div>
           </div>
 
-          {/* Pengaturan Kuis & Keamanan Interaktif */}
+          {/* Pengaturan Kuis & Submission ke Google Spreadsheet / Web3forms */}
           <div className="p-3.5 border-2 border-stone-900 bg-[#FAF7F2] rounded-md space-y-3">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-rose-600" />
-              <h4 className="font-heading font-bold text-xs uppercase text-stone-900">
-                Konfigurasi Kuis & Proteksi Integritas (Anti-Curang)
-              </h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-600" />
+                <h4 className="font-heading font-bold text-xs uppercase text-stone-900">
+                  Target Pengiriman Nilai & Formulir Interaktif
+                </h4>
+              </div>
+
+              {/* Selector Target Submission */}
+              <div className="flex items-center gap-1 bg-white p-1 border border-stone-900 rounded text-xs">
+                {[
+                  { id: 'appscript' as const, label: 'Google Spreadsheet', icon: FileSpreadsheet },
+                  { id: 'web3forms' as const, label: 'Web3forms (Email)', icon: Send },
+                  { id: 'both' as const, label: 'Keduanya', icon: Layers },
+                ].map((tgt) => {
+                  const isSel = data.quizSettings.submissionTarget === tgt.id;
+                  const Icon = tgt.icon;
+                  return (
+                    <button
+                      key={tgt.id}
+                      type="button"
+                      onClick={() => updateQuiz('submissionTarget', tgt.id)}
+                      className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 ${
+                        isSel
+                          ? 'bg-[#FEF08A] text-stone-900 shadow-xs border border-stone-900'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <Icon className="w-3 h-3" />
+                      <span>{tgt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -112,7 +203,7 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
                   type="text"
                   value={data.quizSettings.namaGuru}
                   onChange={(e) => updateQuiz('namaGuru', e.target.value)}
-                  placeholder="mis. Bu Siti Rahma, M.Pd."
+                  placeholder="mis. Ibu Ratna Sari, M.Pd."
                   className="w-full px-3 py-1.5 text-xs border-2 border-stone-900 rounded bg-white"
                 />
               </div>
@@ -133,31 +224,107 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-stone-800">
-                  Access Key Web3forms (Untuk Kirim Nilai ke Email Guru)
-                </label>
-                <a
-                  href="https://web3forms.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] text-purple-700 underline font-medium hover:text-purple-900"
-                >
-                  Dapatkan Access Key Gratis di Web3forms.com ↗
-                </a>
+            {/* GOOGLE SPREADSHEET / APPS SCRIPT CONFIGURATION */}
+            {(data.quizSettings.submissionTarget === 'appscript' ||
+              data.quizSettings.submissionTarget === 'both') && (
+              <div className="p-3 bg-white border-2 border-emerald-800 rounded-md space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                    <span className="text-xs font-bold uppercase text-stone-900">
+                      Integrasi Google Spreadsheet (Apps Script Webhook)
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowScriptHelper(!showScriptHelper)}
+                    className="text-[11px] font-bold text-emerald-800 hover:text-emerald-900 underline flex items-center gap-1"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    {showScriptHelper ? 'Tutup Kode Apps Script' : 'Salin Kode Google Apps Script'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-stone-700 mb-0.5">
+                      URL Web App Google Apps Script (Berakhiran /exec)
+                    </label>
+                    <input
+                      type="url"
+                      value={data.quizSettings.appScriptUrl}
+                      onChange={(e) => updateQuiz('appScriptUrl', e.target.value)}
+                      placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                      className="w-full px-3 py-1.5 text-xs font-mono border-2 border-stone-900 rounded bg-[#FAF7F2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-stone-700 mb-0.5">
+                      Nama Sheet di Google Spreadsheet
+                    </label>
+                    <input
+                      type="text"
+                      value={data.quizSettings.sheetName}
+                      onChange={(e) => updateQuiz('sheetName', e.target.value)}
+                      placeholder="mis. Nilai_Siswa"
+                      className="w-full px-3 py-1.5 text-xs font-mono border-2 border-stone-900 rounded bg-[#FAF7F2]"
+                    />
+                  </div>
+                </div>
+
+                {/* Apps Script Code Helper Box */}
+                {showScriptHelper && (
+                  <div className="mt-2 p-3 bg-stone-900 text-stone-100 rounded text-xs font-mono space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-amber-300 font-bold">
+                        📄 Kode doPost Google Apps Script Siap Tempel:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyScript}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-[#FEF08A] text-stone-900 rounded hover:bg-[#fde047] transition-colors"
+                      >
+                        {copiedCode ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedCode ? 'Tersalin!' : 'Salin Kode Script'}</span>
+                      </button>
+                    </div>
+                    <pre className="p-2 bg-stone-950 rounded text-[11px] leading-relaxed overflow-x-auto text-emerald-400">
+                      {appScriptCode}
+                    </pre>
+                  </div>
+                )}
               </div>
-              <input
-                type="text"
-                value={data.quizSettings.web3formKey}
-                onChange={(e) => updateQuiz('web3formKey', e.target.value)}
-                placeholder="Tempel Access Key Web3forms disini (mis. a1b2c3d4-e5f6-7890-...)"
-                className="w-full px-3 py-1.5 text-xs font-mono border-2 border-stone-900 rounded bg-white"
-              />
-              <p className="text-[11px] text-stone-500 mt-1">
-                Jika dikosongkan, prompt akan menyertakan placeholder <code className="bg-stone-200 px-1 rounded">[ tempel disini ]</code> agar Anda bisa mengisinya nanti.
-              </p>
-            </div>
+            )}
+
+            {/* WEB3FORMS CONFIGURATION */}
+            {(data.quizSettings.submissionTarget === 'web3forms' ||
+              data.quizSettings.submissionTarget === 'both') && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-stone-800">
+                    Access Key Web3forms (Kirim Nilai ke Email Guru)
+                  </label>
+                  <a
+                    href="https://web3forms.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-purple-700 underline font-medium hover:text-purple-900 flex items-center gap-1"
+                  >
+                    <span>Dapatkan Key Gratis di Web3forms.com</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <input
+                  type="text"
+                  value={data.quizSettings.web3formKey}
+                  onChange={(e) => updateQuiz('web3formKey', e.target.value)}
+                  placeholder="Tempel Access Key Web3forms disini (mis. a1b2c3d4-e5f6-7890-...)"
+                  className="w-full px-3 py-1.5 text-xs font-mono border-2 border-stone-900 rounded bg-white"
+                />
+              </div>
+            )}
 
             {/* KOLOM HTML: GAMBAR / VIDEO UNTUK SOAL KUIS */}
             <div className="pt-2 border-t border-stone-300 space-y-2">
@@ -346,7 +513,7 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
                 {
                   id: 'C' as OutputFormatType,
                   title: 'C. HTML Interaktif Satu File (Aktifkan Bagian C)',
-                  desc: 'Slide web responsif mandiri, support swipe, kuis, full-screen, dan anti-cheat.',
+                  desc: 'Slide web responsif mandiri, support swipe, kuis, full-screen, Google Sheets submission, dan anti-cheat.',
                   badge: 'Paling Populer',
                   popular: true,
                 },
@@ -389,7 +556,7 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
 
                     {opt.id === 'C' && (
                       <div className="mt-2 text-[10px] text-emerald-800 font-mono font-bold">
-                        ⚡ Otomatis mengaktifkan aturan teknis Bagian C
+                        ⚡ Otomatis mengaktifkan aturan teknis Bagian C & pengiriman Google Spreadsheet
                       </div>
                     )}
                   </button>

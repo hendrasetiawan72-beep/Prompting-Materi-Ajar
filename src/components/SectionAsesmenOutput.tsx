@@ -426,6 +426,11 @@ function doPost(e) {
                     label: 'Hanya 1x Kirim',
                     desc: 'Terkunci setelah notifikasi terkirim',
                   },
+                  {
+                    key: 'modeLatihanSetelahKirim' as const,
+                    label: 'Mode Latihan Pasca-Kirim',
+                    desc: 'Bisa latihan ulang tanpa ubah nilai resmi',
+                  },
                 ].map((sec) => {
                   const val = data.quizSettings[sec.key];
                   return (

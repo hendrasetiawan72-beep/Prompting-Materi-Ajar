@@ -143,7 +143,13 @@ export function generatePromptInduk(
   if (q.antiKopas) securityClauses.push('tidak bisa kopas');
   if (q.antiTranslate) securityClauses.push('tidak bisa translate');
   if (q.antiScreenshot) securityClauses.push('tidak bisa di screenshot');
-  if (q.singleSubmission) securityClauses.push('satu siswa hanya bisa mengirim satu kali setelah menerima notifikasi terkirim ke guru.');
+  if (q.singleSubmission) {
+    if (q.modeLatihanSetelahKirim) {
+      securityClauses.push('satu siswa hanya bisa mengirim nilai resmi satu kali setelah menerima notifikasi terkirim ke guru, setelah itu kuis otomatis beralih ke Mode Latihan (siswa dapat mencoba kembali soal secara interaktif untuk belajar mandiri dan melihat pembahasan tanpa mengubah skor resmi yang sudah tersimpan).');
+    } else {
+      securityClauses.push('satu siswa hanya bisa mengirim satu kali setelah menerima notifikasi terkirim ke guru.');
+    }
+  }
 
   if (securityClauses.length > 0) {
     lines.push(securityClauses.join(', '));
@@ -214,6 +220,7 @@ export function generatePromptInduk(
     lines.push('- Kuis: skor dihitung sesuai A.6.');
     lines.push('- Pengiriman hasil (jika dipilih): isi nama dan kelas dulu, semua soal wajib dijawab, kirim sekali per siswa, status berhasil/gagal jelas.');
     lines.push('- Pengiriman ke Google Spreadsheet (Apps Script): Gunakan fetch POST ke URL Apps Script dengan data JSON/FormData (timestamp, nama, kelas, skor, durasi, jawaban/esai). Berikan umpan balik loading dan konfirmasi terkirim.');
+    lines.push('- Transisi Mode Latihan Pasca-Kirim: Setelah 1x pengiriman sukses, sistem slide kuis wajib beralih ke Mode Latihan mandiri: buka opsi bagi siswa untuk mengulang menjawab soal dengan umpan balik langsung per soal dan pembahasan, namun kunci tombol pengiriman data agar skor resmi di spreadsheet tidak terduplikasi atau berubah.');
     lines.push('- Semua hal yang harus diganti guru memakai placeholder mudah dicari, mis. GANTI-LOGO, GANTI-KUNCI-FORMULIR, GANTI-URL-APPSCRIPT, GANTI-URL.');
     lines.push('- Integrasi Media: Sisipkan Lampiran HTML Logo Sekolah di sudut atas slide, Lampiran HTML Background di wrapper slide, Lampiran HTML Media Materi pada slide konsep/kegiatan, dan Lampiran HTML Media Soal pada kartu kuis.');
     lines.push('- Hormati prefers-reduced-motion; kontras teks cukup.');

@@ -29,6 +29,7 @@ export interface QuizSettings {
   antiTranslate: boolean;
   antiScreenshot: boolean;
   singleSubmission: boolean;
+  modeLatihanSetelahKirim: boolean;
 }
 
 export interface PromptFormData {

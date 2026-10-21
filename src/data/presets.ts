@@ -138,6 +138,7 @@ export const INITIAL_FORM_DATA: PromptFormData = {
     antiTranslate: true,
     antiScreenshot: true,
     singleSubmission: true,
+    modeLatihanSetelahKirim: true,
   },
 
   // 7. FORMAT KELUARAN
@@ -220,6 +221,7 @@ export const PRESET_TEMPLATES: PresetTemplate[] = [
         antiTranslate: true,
         antiScreenshot: true,
         singleSubmission: true,
+        modeLatihanSetelahKirim: true,
       },
       formatKeluaran: 'C',
       modeKerja: 'langsung jadi',

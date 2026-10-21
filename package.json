@@ -7,6 +7,8 @@
     "dev": "tsx server.ts",
     "build": "vite build",
     "start": "tsx server.ts",
+    "bun:build": "bun x vite build",
+    "bun:deploy": "bun run build && bun x wrangler pages deploy dist --project-name=prompting-materi-ajar",
     "pages:deploy": "vite build && wrangler pages deploy dist --project-name=prompting-materi-ajar",
     "deploy": "vite build && wrangler deploy",
     "clean": "rm -rf dist server.js",

@@ -99,6 +99,7 @@ export default function App() {
           antiTranslate: true,
           antiScreenshot: true,
           singleSubmission: true,
+          modeLatihanSetelahKirim: true,
         },
         formatKeluaran: 'C',
         modeKerja: 'langsung jadi',

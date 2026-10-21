@@ -106,6 +106,7 @@ export default function App() {
         jumlahSlide: '10 slide interaktif',
         temaVisual: 'Vintage Postmodernism Neobrutalist Colorful Pastel Elegant',
         paletFont: 'Pastel lembut (vanilla custard, sage mint, peach, lavender) & font sans modern',
+        efekSlide: 'Fade Halus & Transisi Modern (Smooth Opacity & Translation)',
         logoGambar: 'placeholder logo',
         htmlLogoSekolah: '',
         htmlBackgroundSekolah: '',

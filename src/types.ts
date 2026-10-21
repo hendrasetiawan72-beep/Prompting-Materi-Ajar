@@ -15,13 +15,20 @@ export interface AlurItem {
   customNote?: string;
 }
 
+export type BentukSoalType =
+  | 'pilihan ganda'
+  | 'mcma'
+  | 'pg_kompleks_kategori_3'
+  | 'essay'
+  | 'campuran pilihan ganda & essay';
+
 export interface QuizSettings {
   web3formKey: string;
   submissionTarget: 'web3forms' | 'appscript' | 'both';
   appScriptUrl: string;
   sheetName: string;
   namaGuru: string;
-  bentukSoal: 'pilihan ganda' | 'essay' | 'campuran pilihan ganda & essay';
+  bentukSoal: BentukSoalType | string;
   hitungNilaiLangsung: boolean;
   timerDurasi: boolean;
   timerMenit: number;
@@ -75,6 +82,7 @@ export interface PromptFormData {
   // 8. GAYA VISUAL & LAMPIRAN MEDIA SEKOLAH
   temaVisual: string;
   paletFont: string;
+  efekSlide: string;
   logoGambar: string;
   htmlLogoSekolah: string;
   htmlBackgroundSekolah: string;

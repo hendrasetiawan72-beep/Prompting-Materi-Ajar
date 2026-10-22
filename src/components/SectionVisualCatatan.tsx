@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PromptFormData } from '../types';
-import { Palette, FileQuestion, Image, Eye, Code, School, Flame } from 'lucide-react';
+import { Palette, FileQuestion, Image, Eye, Code, School, Flame, Sparkles } from 'lucide-react';
 
 interface SectionVisualCatatanProps {
   data: PromptFormData;
@@ -59,6 +59,101 @@ export const SectionVisualCatatan: React.FC<SectionVisualCatatanProps> = ({
                   + {theme}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* PILIHAN EFEK & ANIMASI TRANSISI SLIDE */}
+          <div className="p-3.5 border-2 border-stone-900 bg-[#FAF7F2] rounded-lg space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-800" />
+                <label className="text-xs font-bold uppercase text-stone-900">
+                  Pilihan Efek & Animasi Slide
+                </label>
+              </div>
+              <span className="text-[11px] font-mono text-emerald-900 bg-[#DCFCE7] px-2 py-0.5 rounded border border-emerald-800 font-bold">
+                Transisi CSS Modern
+              </span>
+            </div>
+
+            <input
+              type="text"
+              value={data.efekSlide || ''}
+              onChange={(e) => onChange('efekSlide', e.target.value)}
+              placeholder="Pilih atau ketik efek transisi slide yang diinginkan..."
+              className="w-full px-3 py-2 text-xs font-medium border-2 border-stone-900 rounded bg-white focus:outline-none"
+            />
+
+            {/* Presets Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {[
+                {
+                  id: 'Fade Halus & Transisi Modern (Smooth Opacity & Translation)',
+                  name: 'Fade Halus Modern',
+                  desc: 'Transisi opacity dan translate halus berkelas',
+                  badge: 'Rekomendasi',
+                },
+                {
+                  id: 'Slide Horizontal (Geser Kiri/Kanan Halus + Touch Swipe)',
+                  name: 'Slide Horizontal',
+                  desc: 'Geser kiri/kanan seperti presentasi mobile & swipe',
+                  badge: 'Populer',
+                },
+                {
+                  id: 'Card Flip 3D (Efek Balik Kartu Presisi)',
+                  name: 'Card Flip 3D',
+                  desc: 'Rotasi 3D sumbu Y seolah membalik flashcard',
+                  badge: 'Interaktif',
+                },
+                {
+                  id: 'Zoom & Pop Edukatif (Skala & Efek Timbul Dinamis)',
+                  name: 'Zoom & Pop',
+                  desc: 'Scale-in elastis lembut untuk menarik atensi siswa',
+                  badge: 'Ceria',
+                },
+                {
+                  id: 'Parallax Glow Neobrutalist (Bayangan & Aksen Bergerak)',
+                  name: 'Parallax Glow',
+                  desc: 'Aksen bayangan tegas pastel neobrutalisme',
+                  badge: 'Estetik',
+                },
+                {
+                  id: 'Minimalis Cepat (Tanpa Delay, Ramah Kuota & Perangkat Rendah)',
+                  name: 'Minimalis Cepat',
+                  desc: 'Tanpa animasi berat, instan & hemat daya laptop/HP',
+                  badge: 'Ringan',
+                },
+              ].map((efek) => {
+                const isSelected = data.efekSlide === efek.id;
+                return (
+                  <button
+                    key={efek.id}
+                    type="button"
+                    onClick={() => onChange('efekSlide', efek.id)}
+                    className={`p-2.5 text-left border-2 border-stone-900 rounded transition-all flex flex-col justify-between ${
+                      isSelected
+                        ? 'bg-[#FEF08A] text-stone-900 neo-shadow-sm font-medium'
+                        : 'bg-white text-stone-700 hover:bg-stone-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-stone-900">{efek.name}</span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                            isSelected
+                              ? 'bg-stone-900 text-white border-stone-900'
+                              : 'bg-stone-100 text-stone-600 border-stone-300'
+                          }`}
+                        >
+                          {efek.badge}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-stone-600 leading-snug">{efek.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

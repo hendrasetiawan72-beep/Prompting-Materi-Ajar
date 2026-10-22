@@ -37,6 +37,9 @@ export interface QuizSettings {
   antiScreenshot: boolean;
   singleSubmission: boolean;
   modeLatihanSetelahKirim: boolean;
+  pantauWaktuBelajar: boolean;
+  pantauKeluarTab: boolean;
+  pantauLayarPenuh: boolean;
 }
 
 export interface PromptFormData {

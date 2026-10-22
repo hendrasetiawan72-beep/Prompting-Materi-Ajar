@@ -136,7 +136,20 @@ export function generatePromptInduk(
     lines.push(`Nama sheet tujuan di Google Spreadsheet: [ ${q.sheetName || 'Nilai_Siswa'} ]`);
   }
 
-  lines.push(`Format quiz harus memasukkan nama dan kelas siswa, bentuk soal [ ${q.bentukSoal} ]`);
+  let bentukSoalText = `bentuk soal [ ${q.bentukSoal} ]`;
+  if (q.bentukSoal === 'pilihan ganda') {
+    bentukSoalText = `bentuk soal [ Pilihan Ganda Tunggal (1 jawaban benar per soal dengan elemen radio button) ]`;
+  } else if (q.bentukSoal === 'mcma') {
+    bentukSoalText = `bentuk soal [ Pilihan Ganda Kompleks MCMA (Multiple Choice Multiple Answer): opsi menggunakan elemen checkbox (<input type="checkbox">), siswa wajib memilih lebih dari satu jawaban benar (misal instruksikan "Pilih 2 jawaban yang tepat"), skor dihitung proporsional ]`;
+  } else if (q.bentukSoal === 'pg_kompleks_kategori_3') {
+    bentukSoalText = `bentuk soal [ Pilihan Ganda Kompleks Kategori 3 Pernyataan (Standar AKM Kurikulum Merdeka): sediakan stimulus kontekstual diikuti tabel matriks responsif berisi tepat 3 butir pernyataan dengan opsi kategori biner Benar/Salah atau Sesuai/Tidak Sesuai menggunakan radio button per baris ]`;
+  } else if (q.bentukSoal === 'essay') {
+    bentukSoalText = `bentuk soal [ Essay / Uraian Bebas: sediakan textarea respon siswa beserta rubrik kriteria penilaian ]`;
+  } else if (q.bentukSoal === 'campuran pilihan ganda & essay') {
+    bentukSoalText = `bentuk soal [ Campuran Komprehensif: kombinasi Pilihan Ganda biasa (radio), MCMA (checkbox >1 benar), PG Kompleks Kategori (tabel 3 pernyataan Benar/Salah), serta Essay/Uraian reflektif ]`;
+  }
+
+  lines.push(`Format quiz harus memasukkan nama dan kelas siswa, ${bentukSoalText}`);
   lines.push(`Sediakan tombol akses kirim ke guru [${q.namaGuru || 'nama guru'}]`);
 
   const securityClauses: string[] = [];
@@ -145,16 +158,41 @@ export function generatePromptInduk(
   if (q.antiKopas) securityClauses.push('tidak bisa kopas');
   if (q.antiTranslate) securityClauses.push('tidak bisa translate');
   if (q.antiScreenshot) securityClauses.push('tidak bisa di screenshot');
+  
   if (q.singleSubmission) {
-    if (q.modeLatihanSetelahKirim) {
-      securityClauses.push('satu siswa hanya bisa mengirim nilai resmi satu kali setelah menerima notifikasi terkirim ke guru, setelah itu kuis otomatis beralih ke Mode Latihan (siswa dapat mencoba kembali soal secara interaktif untuk belajar mandiri dan melihat pembahasan tanpa mengubah skor resmi yang sudah tersimpan).');
-    } else {
-      securityClauses.push('satu siswa hanya bisa mengirim satu kali setelah menerima notifikasi terkirim ke guru.');
+    securityClauses.push(
+      'FITUR SATU KALI KIRIM: Kunci identifikasi unik = nama + kelas huruf kecil dengan spasi dirapikan (trim().toLowerCase().replace(/\\s+/g, " ")), disimpan di localStorage dan dicek di server Google Apps Script (kolom Kunci) menggunakan LockService 20 detik. Jika duplikat, server membalas {ok:false, dup:true} dan widget otomatis masuk mode latihan. Tombol kirim wajib dikunci (disabled/loading) selama proses pengiriman untuk mencegah klik ganda.'
+    );
+  }
+
+  if (q.modeLatihanSetelahKirim) {
+    securityClauses.push(
+      'FITUR MODE LATIHAN: Saat masuk mode latihan, jawaban dan refleksi dikosongkan/reset, laporan nilai resmi tidak dikirim lagi ke spreadsheet, pencatat waktu pengerjaan dan pelacak keluar tab dihentikan. Jawaban langsung ditandai warna hijau (benar) atau merah (salah). Terdapat tombol "ULANGI LATIHAN" untuk mencoba mandiri, dan tombol "Mulai sebagai siswa baru" (dengan konfirmasi dialog) untuk perangkat HP/komputer yang dipakai bergantian antar siswa.'
+    );
+  }
+
+  if (q.pantauWaktuBelajar || q.pantauKeluarTab || q.pantauLayarPenuh) {
+    const monitorItems: string[] = [];
+    if (q.pantauWaktuBelajar) {
+      monitorItems.push(
+        'waktu belajar total dan per langkah (8 langkah pembelajaran), hanya dihitung saat tab terlihat (document.hidden === false), selisih waktu lonjakan lebih dari 3 detik diabaikan (heartbeat aktif)'
+      );
     }
+    if (q.pantauKeluarTab) {
+      monitorItems.push(
+        'pelacak keluar tab (visibilitychange): hitung frekuensi keluar, total akumulasi durasi (detik), dan log detail maksimal 40 entri (jam, langkah, detik). Berikan notifikasi/peringatan saat siswa kembali ke tab'
+      );
+    }
+    if (q.pantauLayarPenuh) {
+      monitorItems.push(
+        'layar penuh: sediakan tombol fullscreen, hitung berapa kali keluar layar penuh, dan sertakan cadangan fixed overlay khusus untuk iPhone / iOS Safari'
+      );
+    }
+    securityClauses.push(`FITUR PEMANTAUAN INTEGRITAS: ${monitorItems.join('; ')}`);
   }
 
   if (securityClauses.length > 0) {
-    lines.push(securityClauses.join(', '));
+    lines.push(securityClauses.join('; '));
   }
 
   // HTML Gambar / Video untuk Soal Kuis
@@ -177,6 +215,7 @@ export function generatePromptInduk(
   // 8. GAYA VISUAL & LAMPIRAN MEDIA
   lines.push('*8. GAYA VISUAL*');
   lines.push(`- Tema: [${data.temaVisual || (cleanUnusedLines ? '' : 'mis. Modern dengan efek dinamis dan responsif, minimalis, formal')}]`);
+  lines.push(`- Efek & Animasi Slide: [${data.efekSlide || 'Fade Halus & Transisi Modern (Smooth Opacity & Translation)'}]`);
   lines.push(`- Palet/font: [${data.paletFont || (cleanUnusedLines ? '' : 'pilihkan')}]`);
   lines.push(`- Logo/gambar: [${data.logoGambar || (cleanUnusedLines ? '' : 'URL atau placeholder')}]`);
   if (data.htmlLogoSekolah || !cleanUnusedLines) {
@@ -216,13 +255,35 @@ export function generatePromptInduk(
     lines.push('- Satu file; CSS dan JS di-scope ke satu ID root agar aman ditempel di Blogger/LMS (tanpa tag html/body, tanpa style global).');
     lines.push('- Mobile-first, responsif portrait dan landscape, tinggi pakai dvh, tombol besar.');
     lines.push('- Navigasi: tombol sebelumnya/berikutnya, swipe, keyboard, nomor slide, progress bar.');
-    lines.push('- Tombol layar penuh (Fullscreen API + cadangan overlay fixed).');
+    lines.push('- Tombol layar penuh: requestFullscreen API dengan fallback overlay fixed fullscreen khusus Safari iOS.');
     lines.push('- Slide panjang bisa di-scroll di dalam kartu; tidak ada elemen yang menimpa navigasi.');
     lines.push('- Interaksi sesuai aktivitas terpilih: pilihan dengan umpan balik, kartu balik, audio TTS (hanya jika perlu), video embed (berhenti saat pindah slide).');
-    lines.push('- Kuis: skor dihitung sesuai A.6.');
-    lines.push('- Pengiriman hasil (jika dipilih): isi nama dan kelas dulu, semua soal wajib dijawab, kirim sekali per siswa, status berhasil/gagal jelas.');
-    lines.push('- Pengiriman ke Google Spreadsheet (Apps Script): Gunakan fetch POST ke URL Apps Script dengan data JSON/FormData (timestamp, nama, kelas, skor, durasi, jawaban/esai). Berikan umpan balik loading dan konfirmasi terkirim.');
-    lines.push('- Transisi Mode Latihan Pasca-Kirim: Setelah 1x pengiriman sukses, sistem slide kuis wajib beralih ke Mode Latihan mandiri: buka opsi bagi siswa untuk mengulang menjawab soal dengan umpan balik langsung per soal dan pembahasan, namun kunci tombol pengiriman data agar skor resmi di spreadsheet tidak terduplikasi atau berubah.');
+    lines.push('- Kuis & Bentuk Soal Interaktif:');
+    lines.push('  * Pilihan Ganda Tunggal: Radio button eksklusif per butir soal.');
+    lines.push('  * Pilihan Ganda Kompleks (MCMA): Gunakan elemen checkbox (<input type="checkbox">) dengan label interaktif, instruksikan jumlah pilihan benar (mis. "Pilih 2 jawaban yang benar"), evaluasi kombinasi jawaban benar dengan skor proporsional.');
+    lines.push('  * PG Kompleks Kategori 3 Pernyataan: Tampilkan tabel matriks responsif berisi tepat 3 butir pernyataan x kolom kategori (Benar/Salah atau Sesuai/Tidak Sesuai). Gunakan radio button per baris (<input type="radio" name="pgk_q{i}_p{1..3}">). Siswa wajib mengisi ketiga baris sebelum submit.');
+    lines.push('  * Essay / Uraian: Textarea input dengan rubrik panduan diri.');
+    lines.push('  * Skor kuis dihitung otomatis sesuai skema A.6.');
+    lines.push(`- Efek & Animasi Slide: Terapkan transisi slide sesuai A.8 [${data.efekSlide || 'Fade Halus & Transisi Modern (Smooth Opacity & Translation)'}]. Gunakan CSS transitions atau keyframes berkinerja tinggi (transform & opacity) dengan easing halus, bebas lag di mobile, dan sediakan @media (prefers-reduced-motion: reduce) untuk aksesibilitas.`);
+    lines.push('- MODUL KEAMANAN & PEMBATASAN SISWA (Wajib diimplementasikan di JavaScript):');
+    lines.push('  1. SATU KALI KIRIM:');
+    lines.push('     - Kunci identifikasi unik = nama + kelas huruf kecil dengan spasi dirapikan: key = (nama.trim().toLowerCase().replace(/\\s+/g, " ") + "_" + kelas.trim().toLowerCase().replace(/\\s+/g, " ")).');
+    lines.push('     - Simpan key ke localStorage ("submitted_" + key) saat pengiriman berhasil atau jika pernah terkirim.');
+    lines.push('     - Tombol kirim wajib dinonaktifkan (disabled = true, ubah teks "Mengirim...") seketika saat diklik untuk mencegah klik ganda.');
+    lines.push('     - Jika server merespons { ok: false, dup: true }, tampilkan pemberitahuan "Tugas sudah pernah dikirim sebelumnya" dan otomatis panggil fungsi masuk Mode Latihan.');
+    lines.push('  2. MODE LATIHAN (PRACTICE MODE):');
+    lines.push('     - Saat widget memasuki mode latihan: kosongkan/reset semua pilihan jawaban dan isian refleksi/esai.');
+    lines.push('     - Nonaktifkan tombol kirim ke server (tidak ada data yang dikirim ulang ke spreadsheet).');
+    lines.push('     - Hentikan interval timer pengerjaan dan pencatat waktu/keluar tab.');
+    lines.push('     - Aktifkan evaluasi instan: setiap opsi yang dipilih siswa langsung ditandai warna hijau (benar) atau merah (salah) beserta pembahasan.');
+    lines.push('     - Sediakan tombol "ULANGI LATIHAN" yang mereset pilihan latihan tanpa mengubah skor resmi yang sudah tersimpan.');
+    lines.push('     - Sediakan tombol "Mulai sebagai siswa baru" dengan prompt konfirmasi (confirm("Mulai sesi baru untuk siswa lain? Perangkat ini akan dibersihkan untuk pengguna berikutnya.")). Jika ya, hapus cache localStorage dan izinkan pengisian identitas baru.');
+    lines.push('  3. PEMANTAUAN BELAJAR & INTEGRITAS:');
+    lines.push('     - Waktu belajar aktif: Catat total durasi dan waktu per langkah (array 8 langkah). Hitung HANYA saat tab terlihat (!document.hidden). Selisih waktu (delta) lebih dari 3 detik diabaikan/dilewati agar durasi akurat saat perangkat sleep.');
+    lines.push('     - Pelacak Keluar Tab (visibilitychange): Tambah hitungan keluar tab (counter), akumulasi durasi keluar tab (detik), dan simpan log detail maksimal 40 entri [{ jam: "HH:MM:SS", langkah: N, detik: S }].');
+    lines.push('     - Tampilkan modal/alert peringatan integritas saat siswa kembali ke tab: "Peringatan: Kamu terdeteksi keluar dari slide materi selama X detik."');
+    lines.push('     - Layar penuh (Fullscreen): Pasang tombol toggle fullscreen. Pasang event listener fullscreenchange untuk menghitung frekuensi keluar dari layar penuh. Sediakan fallback class fixed overlay untuk perangkat iOS/iPhone.');
+    lines.push('- Pengiriman ke Google Spreadsheet (Apps Script): Gunakan fetch POST ke URL Apps Script dengan body JSON: { kunci, nama, kelas, skor, durasiTotal, durasiPerLangkah, keluarTabCount, keluarTabDurasi, keluarTabLog, keluarFullscreenCount, jawaban }. Berikan umpan balik loading dan penanganan response { ok: true } vs { ok: false, dup: true }.');
     lines.push('- Semua hal yang harus diganti guru memakai placeholder mudah dicari, mis. GANTI-LOGO, GANTI-KUNCI-FORMULIR, GANTI-URL-APPSCRIPT, GANTI-URL.');
     lines.push('- Integrasi Media: Sisipkan Lampiran HTML Logo Sekolah di sudut atas slide, Lampiran HTML Background di wrapper slide, Lampiran HTML Media Materi pada slide konsep/kegiatan, dan Lampiran HTML Media Soal pada kartu kuis.');
     lines.push('- Hormati prefers-reduced-motion; kontras teks cukup.');
@@ -232,7 +293,7 @@ export function generatePromptInduk(
     lines.push('Tahap 1: Tulis asumsi (maks 5 baris), lalu peta slide dalam tabel: No | Judul | Tujuan | Aktivitas | Durasi | Bukti belajar.');
     lines.push('Jika mode "rancangan dulu", berhenti di sini dan tanya: lanjut atau revisi?');
     lines.push('Tahap 2: Hasilkan keluaran sesuai A.7.');
-    lines.push('Tahap 3: Lampiran: kunci jawaban, rubrik, catatan guru (tips fasilitasi, antisipasi miskonsepsi), 3 saran penyesuaian untuk kelas lain, dan kode Google Apps Script (doPost) siap pakai jika memilih pengiriman ke Google Spreadsheet.');
+    lines.push('Tahap 3: Lampiran: kunci jawaban, rubrik, catatan guru (tips fasilitasi, antisipasi miskonsepsi), 3 saran penyesuaian untuk kelas lain, serta kode lengkap Google Apps Script (doPost) yang menerapkan LockService 20 detik, validasi kolom Kunci (menghasilkan { ok: false, dup: true } jika duplikat), dan pencatatan telemetri pemantauan integritas.');
     lines.push('Tanpa basa-basi.');
   }
 

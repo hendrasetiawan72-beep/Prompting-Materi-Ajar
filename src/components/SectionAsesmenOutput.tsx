@@ -16,6 +16,11 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Maximize,
+  RotateCcw,
+  Activity,
+  Users,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface SectionAsesmenOutputProps {
@@ -38,38 +43,108 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
     });
   };
 
-  const appScriptCode = `// KODE GOOGLE APPS SCRIPT (doPost)
+  const appScriptCode = `// KODE GOOGLE APPS SCRIPT (doPost) DENGAN LOCKSERVICE 20 DETIK & CEK KUNCI SATU KALI KIRIM
 // 1. Buat Google Spreadsheet baru
 // 2. Klik menu Ekstensi > Apps Script
 // 3. Hapus kode bawaan dan tempel kode berikut:
 
 function doPost(e) {
+  var lock = LockService.getScriptLock();
+  try {
+    // Kunci proses maksimal 20 detik untuk mencegah race condition / klik ganda
+    lock.waitLock(20000);
+  } catch (lockError) {
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: false,
+      message: "Server sibuk memproses pengiriman lain. Silakan coba sesaat lagi."
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetName = "${data.quizSettings.sheetName || 'Nilai_Siswa'}";
-    var sheet = ss.getSheetByName(sheetName) || ss.getActiveSheet();
-    
-    // Header otomatis jika baris masih kosong
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["Timestamp", "Nama Siswa", "Kelas", "Skor", "Lama Pengerjaan", "Jawaban / Esai"]);
-      sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#FEF08A");
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
     }
     
+    // Header otomatis jika sheet masih kosong
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+        "Timestamp",
+        "Kunci",
+        "Nama Siswa",
+        "Kelas",
+        "Skor",
+        "Lama Pengerjaan",
+        "Waktu Per Langkah (8 Langkah)",
+        "Keluar Tab (Frekuensi)",
+        "Keluar Tab (Total Detik)",
+        "Log Keluar Tab",
+        "Keluar Fullscreen (Frekuensi)",
+        "Jawaban / Esai / Refleksi"
+      ]);
+      sheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#FEF08A");
+      sheet.setFrozenRows(1);
+    }
+
     var data = JSON.parse(e.postData.contents);
+    
+    // Normalisasi Kunci identifikasi unik = nama + kelas (huruf kecil, spasi dirapikan)
+    var namaClean = String(data.nama || "").trim().toLowerCase().replace(/\\s+/g, " ");
+    var kelasClean = String(data.kelas || "").trim().toLowerCase().replace(/\\s+/g, " ");
+    var normKey = data.kunci ? String(data.kunci).trim().toLowerCase().replace(/\\s+/g, " ") : (namaClean + "_" + kelasClean);
+
+    // Cek duplikasi di kolom Kunci (Kolom 2)
+    var values = sheet.getDataRange().getValues();
+    for (var i = 1; i < values.length; i++) {
+      var rowKey = String(values[i][1]).trim().toLowerCase().replace(/\\s+/g, " ");
+      if (rowKey === normKey && normKey !== "") {
+        // Jika duplikat, server membalas {ok:false, dup:true} dan widget masuk mode latihan
+        return ContentService.createTextOutput(JSON.stringify({
+          ok: false,
+          dup: true,
+          message: "Siswa dengan nama dan kelas ini sudah pernah mengirim tugas resmi. Nilai tidak dapat diubah lagi."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // Format data pemantauan
+    var durasiLangkahStr = typeof data.durasiPerLangkah === "object" ? JSON.stringify(data.durasiPerLangkah) : String(data.durasiPerLangkah || "");
+    var tabLogStr = typeof data.keluarTabLog === "object" ? JSON.stringify(data.keluarTabLog) : String(data.keluarTabLog || "");
+    var jawabanStr = typeof data.jawaban === "object" ? JSON.stringify(data.jawaban) : String(data.jawaban || data.esai || "");
+
+    // Simpan baris baru ke spreadsheet
     sheet.appendRow([
       new Date(),
+      normKey,
       data.nama || "",
       data.kelas || "",
-      data.skor || 0,
-      data.lamaPengerjaan || "",
-      typeof data.jawaban === "object" ? JSON.stringify(data.jawaban) : (data.jawaban || data.esai || "")
+      data.skor !== undefined ? data.skor : 0,
+      data.lamaPengerjaan || data.durasiTotal || "",
+      durasiLangkahStr,
+      data.keluarTabCount || 0,
+      data.keluarTabDurasi || 0,
+      tabLogStr,
+      data.keluarFullscreenCount || 0,
+      jawabanStr
     ]);
-    
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Data berhasil disimpan ke Spreadsheet!" }))
-      .setMimeType(ContentService.MimeType.JSON);
+
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: true,
+      status: "success",
+      message: "Data tugas dan pemantauan belajar berhasil dicatat di Spreadsheet!"
+    })).setMimeType(ContentService.MimeType.JSON);
+
   } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: false,
+      status: "error",
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    // Selalu lepaskan lock
+    lock.releaseLock();
   }
 }
 
@@ -217,12 +292,124 @@ function doPost(e) {
                   onChange={(e) => updateQuiz('bentukSoal', e.target.value)}
                   className="w-full px-3 py-1.5 text-xs border-2 border-stone-900 rounded bg-white font-medium"
                 >
-                  <option value="pilihan ganda">Pilihan Ganda</option>
-                  <option value="essay">Essay / Uraian</option>
-                  <option value="campuran pilihan ganda & essay">Campuran Pilihan Ganda & Essay</option>
+                  <option value="pilihan ganda">Pilihan Ganda Tunggal (1 Jawaban Benar)</option>
+                  <option value="mcma">Pilihan Ganda Kompleks MCMA (Pilih &gt;1 Jawaban Benar / Checkbox)</option>
+                  <option value="pg_kompleks_kategori_3">PG Kompleks Kategori (Tabel 3 Pernyataan Benar/Salah)</option>
+                  <option value="essay">Essay / Uraian Bebas</option>
+                  <option value="campuran pilihan ganda & essay">Campuran (PG Tunggal, MCMA, PGK 3 Pernyataan & Uraian)</option>
                 </select>
+
+                {/* Quick Select Badges */}
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {[
+                    { val: 'pilihan ganda', label: 'PG Tunggal' },
+                    { val: 'mcma', label: 'MCMA (Multi-Jawaban)' },
+                    { val: 'pg_kompleks_kategori_3', label: 'PGK Kategori 3 Pernyataan' },
+                    { val: 'essay', label: 'Essay' },
+                    { val: 'campuran pilihan ganda & essay', label: 'Campuran' },
+                  ].map((item) => (
+                    <button
+                      key={item.val}
+                      type="button"
+                      onClick={() => updateQuiz('bentukSoal', item.val)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded border border-stone-900 transition-all ${
+                        data.quizSettings.bentukSoal === item.val
+                          ? 'bg-[#FEF08A] text-stone-900 neo-shadow-sm'
+                          : 'bg-white text-stone-600 hover:bg-stone-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+
+            {/* Informational Callout Card for MCMA & PG Kompleks Kategori 3 Pernyataan */}
+            {(data.quizSettings.bentukSoal === 'mcma' ||
+              data.quizSettings.bentukSoal === 'pg_kompleks_kategori_3' ||
+              data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+              <div className="p-3 bg-[#EFF6FF] border-2 border-blue-900 rounded-md text-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-blue-950">
+                  <ShieldAlert className="w-4 h-4 text-blue-700" />
+                  <span>Panduan Bentuk Soal Interaktif AKM / Kurikulum Merdeka</span>
+                </div>
+
+                {(data.quizSettings.bentukSoal === 'mcma' ||
+                  data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+                  <div className="bg-white p-2.5 rounded border border-blue-300 space-y-1">
+                    <span className="font-bold text-blue-900 flex items-center gap-1 text-[11px]">
+                      <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
+                      Format MCMA (Multiple Choice Multiple Answer)
+                    </span>
+                    <p className="text-[11px] text-stone-700 leading-relaxed">
+                      Siswa diberikan stimulus pertanyaan dan pilihan dengan elemen <strong>checkbox</strong> (<code className="text-blue-800 bg-blue-50 px-1 py-0.5 rounded">&lt;input type="checkbox"&gt;</code>). Terdapat lebih dari 1 opsi benar (misal memilih 2 dari 4, atau 3 dari 5 pilihan). Dilengkapi instruksi jelas jumlah opsi yang harus dicentang dan penilaian proporsional.
+                    </p>
+                  </div>
+                )}
+
+                {(data.quizSettings.bentukSoal === 'pg_kompleks_kategori_3' ||
+                  data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+                  <div className="bg-white p-2.5 rounded border border-blue-300 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-blue-900 flex items-center gap-1 text-[11px]">
+                        <span className="w-2 h-2 rounded-full bg-indigo-600 inline-block"></span>
+                        Format PG Kompleks Kategori (Tabel 3 Pernyataan)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChange(
+                            'htmlMediaSoal',
+                            `<div class="p-3 border-2 border-stone-900 bg-white rounded-lg neo-shadow-sm my-2">
+  <p class="text-xs font-bold text-stone-900 mb-2">Berdasarkan teks/materi di atas, tentukan kategori Benar atau Salah untuk setiap pernyataan berikut:</p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs text-left border-collapse border border-stone-800">
+      <thead>
+        <tr class="bg-amber-100 border-b border-stone-800">
+          <th class="p-2 border-r border-stone-800 w-8 text-center font-bold">No</th>
+          <th class="p-2 border-r border-stone-800 font-bold">Butir Pernyataan</th>
+          <th class="p-2 border-r border-stone-800 w-16 text-center font-bold">Benar</th>
+          <th class="p-2 w-16 text-center font-bold">Salah</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="border-b border-stone-300 hover:bg-stone-50">
+          <td class="p-2 border-r border-stone-800 text-center font-bold">1</td>
+          <td class="p-2 border-r border-stone-800">Pernyataan stimulus kesatu terkait materi ajar...</td>
+          <td class="p-2 border-r border-stone-800 text-center"><input type="radio" name="pgk_p1" value="benar" class="w-4 h-4 cursor-pointer" /></td>
+          <td class="p-2 text-center"><input type="radio" name="pgk_p1" value="salah" class="w-4 h-4 cursor-pointer" /></td>
+        </tr>
+        <tr class="border-b border-stone-300 hover:bg-stone-50">
+          <td class="p-2 border-r border-stone-800 text-center font-bold">2</td>
+          <td class="p-2 border-r border-stone-800">Pernyataan stimulus kedua terkait konsep atau data...</td>
+          <td class="p-2 border-r border-stone-800 text-center"><input type="radio" name="pgk_p2" value="benar" class="w-4 h-4 cursor-pointer" /></td>
+          <td class="p-2 text-center"><input type="radio" name="pgk_p2" value="salah" class="w-4 h-4 cursor-pointer" /></td>
+        </tr>
+        <tr class="hover:bg-stone-50">
+          <td class="p-2 border-r border-stone-800 text-center font-bold">3</td>
+          <td class="p-2 border-r border-stone-800">Pernyataan stimulus ketiga yang menguji pemahaman kritis...</td>
+          <td class="p-2 border-r border-stone-800 text-center"><input type="radio" name="pgk_p3" value="benar" class="w-4 h-4 cursor-pointer" /></td>
+          <td class="p-2 text-center"><input type="radio" name="pgk_p3" value="salah" class="w-4 h-4 cursor-pointer" /></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>`
+                          )
+                        }
+                        className="text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-400 px-2 py-0.5 rounded transition-colors"
+                      >
+                        + Sisipkan Template Tabel 3 Pernyataan ke Media Soal
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-stone-700 leading-relaxed">
+                      Standar resmi AKM Asesmen Nasional. Siswa membaca stimulus lalu menentukan kategori (Benar/Salah atau Sesuai/Tidak Sesuai) untuk <strong>tepat 3 butir pernyataan</strong> menggunakan radio button per baris tabel.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* GOOGLE SPREADSHEET / APPS SCRIPT CONFIGURATION */}
             {(data.quizSettings.submissionTarget === 'appscript' ||
@@ -361,6 +548,18 @@ function doPost(e) {
                   </button>
                   <button
                     type="button"
+                    onClick={() =>
+                      onChange(
+                        'htmlMediaSoal',
+                        '<div class="p-2.5 border-2 border-stone-900 bg-amber-50 rounded text-xs space-y-2"><p class="font-bold text-stone-900">Perhatikan tabel 3 pernyataan di bawah ini, lalu tentukan kategori Benar atau Salah:</p><table class="w-full text-xs border-collapse border border-stone-800 bg-white"><tr class="bg-amber-200 border-b border-stone-800"><th class="p-1.5 border-r border-stone-800">No</th><th class="p-1.5 border-r border-stone-800 text-left">Pernyataan</th><th class="p-1.5 border-r border-stone-800">Benar</th><th class="p-1.5">Salah</th></tr><tr class="border-b border-stone-300"><td class="p-1.5 border-r border-stone-800 text-center font-bold">1</td><td class="p-1.5 border-r border-stone-800">Pernyataan stimulus ke-1...</td><td class="p-1.5 border-r border-stone-800 text-center"><input type="radio" name="p1" /></td><td class="p-1.5 text-center"><input type="radio" name="p1" /></td></tr><tr class="border-b border-stone-300"><td class="p-1.5 border-r border-stone-800 text-center font-bold">2</td><td class="p-1.5 border-r border-stone-800">Pernyataan stimulus ke-2...</td><td class="p-1.5 border-r border-stone-800 text-center"><input type="radio" name="p2" /></td><td class="p-1.5 text-center"><input type="radio" name="p2" /></td></tr><tr><td class="p-1.5 border-r border-stone-800 text-center font-bold">3</td><td class="p-1.5 border-r border-stone-800">Pernyataan stimulus ke-3...</td><td class="p-1.5 border-r border-stone-800 text-center"><input type="radio" name="p3" /></td><td class="p-1.5 text-center"><input type="radio" name="p3" /></td></tr></table></div>'
+                      )
+                    }
+                    className="text-[10px] font-bold text-stone-700 bg-white hover:bg-stone-100 border border-stone-900 px-2 py-0.5 rounded"
+                  >
+                    + Tabel 3 Pernyataan (PGK)
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setShowSoalMediaPreview(!showSoalMediaPreview)}
                     className="text-[10px] font-bold text-stone-600 underline ml-1"
                   >
@@ -389,47 +588,77 @@ function doPost(e) {
             </div>
 
             {/* Proteksi Switches */}
-            <div className="pt-2 border-t border-stone-300">
-              <span className="block text-xs font-bold uppercase text-stone-800 mb-2">
-                Fitur Keamanan & Pembatasan Siswa
-              </span>
+            <div className="pt-2 border-t border-stone-300 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="block text-xs font-bold uppercase text-stone-800">
+                  Fitur Keamanan, Pembatasan Siswa & Pemantauan Integritas
+                </span>
+                <span className="text-[10px] font-mono bg-purple-100 text-purple-900 border border-purple-300 px-2 py-0.5 rounded font-bold">
+                  Satu Kali Kirim + Mode Latihan + Log Integritas
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                 {[
                   {
+                    key: 'singleSubmission' as const,
+                    label: '1. Satu Kali Kirim (LockService 20s)',
+                    desc: 'Kunci nama+kelas, localStorage & LockService 20s server',
+                    highlight: true,
+                  },
+                  {
+                    key: 'modeLatihanSetelahKirim' as const,
+                    label: '2. Mode Latihan Pasca Kirim',
+                    desc: 'Reset jawaban, feedback hijau/merah, tombol ulangi & ganti siswa',
+                    highlight: true,
+                  },
+                  {
+                    key: 'pantauWaktuBelajar' as const,
+                    label: '3. Pemantauan Waktu Aktif',
+                    desc: 'Waktu total & 8 langkah, tab aktif (skip delta > 3s)',
+                    highlight: true,
+                  },
+                  {
+                    key: 'pantauKeluarTab' as const,
+                    label: '4. Pelacak Keluar Tab',
+                    desc: 'Frekuensi, total durasi, log maks 40 entri & alert kembali',
+                    highlight: true,
+                  },
+                  {
+                    key: 'pantauLayarPenuh' as const,
+                    label: '5. Layar Penuh & Cadangan iPhone',
+                    desc: 'Tombol fullscreen, hitung keluar & overlay iOS Safari',
+                    highlight: true,
+                  },
+                  {
                     key: 'hitungNilaiLangsung' as const,
                     label: 'Hitung Nilai Langsung',
                     desc: 'Otomatis kalkulasi skor akhir',
+                    highlight: false,
                   },
                   {
                     key: 'timerDurasi' as const,
                     label: 'Timer Pengerjaan',
                     desc: `${data.quizSettings.timerMenit} Menit hitung mundur`,
+                    highlight: false,
                   },
                   {
                     key: 'antiKopas' as const,
                     label: 'Tidak Bisa Kopas',
-                    desc: 'Disable copy, paste & select',
+                    desc: 'Disable copy, cut, paste & select',
+                    highlight: false,
                   },
                   {
                     key: 'antiTranslate' as const,
                     label: 'Tidak Bisa Translate',
                     desc: 'Cegah translate otomatis browser',
+                    highlight: false,
                   },
                   {
                     key: 'antiScreenshot' as const,
                     label: 'Tidak Bisa Screenshot',
                     desc: 'Watermark & blur proteksi layar',
-                  },
-                  {
-                    key: 'singleSubmission' as const,
-                    label: 'Hanya 1x Kirim',
-                    desc: 'Terkunci setelah notifikasi terkirim',
-                  },
-                  {
-                    key: 'modeLatihanSetelahKirim' as const,
-                    label: 'Mode Latihan Pasca-Kirim',
-                    desc: 'Bisa latihan ulang tanpa ubah nilai resmi',
+                    highlight: false,
                   },
                 ].map((sec) => {
                   const val = data.quizSettings[sec.key];
@@ -438,22 +667,24 @@ function doPost(e) {
                       key={sec.key}
                       type="button"
                       onClick={() => updateQuiz(sec.key, !val)}
-                      className={`p-2 text-left border-2 border-stone-900 rounded transition-all flex items-start gap-2 ${
+                      className={`p-2.5 text-left border-2 border-stone-900 rounded transition-all flex items-start gap-2 ${
                         val
-                          ? 'bg-[#DCFCE7] text-stone-900 font-bold neo-shadow-sm'
+                          ? sec.highlight
+                            ? 'bg-[#DCFCE7] text-stone-900 font-bold neo-shadow-sm border-emerald-950'
+                            : 'bg-[#FEF08A] text-stone-900 font-bold neo-shadow-sm'
                           : 'bg-white text-stone-600 hover:bg-stone-50'
                       }`}
                     >
                       <div
-                        className={`w-3.5 h-3.5 rounded border border-stone-900 flex items-center justify-center shrink-0 mt-0.5 ${
+                        className={`w-4 h-4 rounded border border-stone-900 flex items-center justify-center shrink-0 mt-0.5 ${
                           val ? 'bg-stone-900 text-white' : 'bg-white'
                         }`}
                       >
-                        {val && <Lock className="w-2.5 h-2.5" />}
+                        {val && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
                       </div>
                       <div>
-                        <div className="text-xs">{sec.label}</div>
-                        <div className="text-[10px] text-stone-500 font-normal">{sec.desc}</div>
+                        <div className="text-xs leading-snug">{sec.label}</div>
+                        <div className="text-[10px] text-stone-500 font-normal mt-0.5">{sec.desc}</div>
                       </div>
                     </button>
                   );
@@ -462,9 +693,9 @@ function doPost(e) {
 
               {/* Timer input if timer is active */}
               {data.quizSettings.timerDurasi && (
-                <div className="mt-2.5 flex items-center gap-2">
-                  <Clock className="w-3.5 h-3.5 text-stone-600" />
-                  <span className="text-xs font-bold text-stone-800">Durasi Timer:</span>
+                <div className="flex items-center gap-2 p-2 bg-[#FEF9C3] border border-amber-300 rounded">
+                  <Clock className="w-4 h-4 text-amber-800" />
+                  <span className="text-xs font-bold text-stone-800">Durasi Timer Kuis:</span>
                   <input
                     type="number"
                     min={3}
@@ -473,9 +704,61 @@ function doPost(e) {
                     onChange={(e) => updateQuiz('timerMenit', parseInt(e.target.value) || 15)}
                     className="w-16 px-2 py-1 text-xs border-2 border-stone-900 rounded bg-white text-center font-bold"
                   />
-                  <span className="text-xs text-stone-600">menit</span>
+                  <span className="text-xs text-stone-700 font-medium">menit hitung mundur (otomatis kumpul saat habis)</span>
                 </div>
               )}
+
+              {/* Detail Panduan Fitur Keamanan & Pembatasan Siswa */}
+              <div className="p-3 bg-[#FAF7F2] border-2 border-stone-900 rounded-md text-xs space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-stone-900">
+                  <ShieldAlert className="w-4 h-4 text-purple-700" />
+                  <span>Spesifikasi Teknis Fitur Keamanan, Mode Latihan & Pemantauan (Sesuai Aturan Prompt):</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px] leading-relaxed">
+                  {/* Card 1: Satu Kali Kirim */}
+                  <div className="bg-white p-2.5 rounded border border-stone-300 space-y-1.5">
+                    <span className="font-bold text-purple-900 flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5 text-purple-700" />
+                      1. Satu Kali Kirim
+                    </span>
+                    <ul className="list-disc list-inside text-stone-700 space-y-1">
+                      <li><strong>Kunci unik:</strong> <code>nama + kelas</code> huruf kecil dengan spasi dirapikan (<code>trim().toLowerCase().replace(/\s+/g, ' ')</code>).</li>
+                      <li>Disimpan di <code>localStorage</code> dan diverifikasi di server Apps Script pada kolom <code>Kunci</code> menggunakan <code>LockService 20 detik</code>.</li>
+                      <li>Jika duplikat, server mengembalikan <code>{`{ ok: false, dup: true }`}</code> dan widget slide otomatis beralih ke Mode Latihan.</li>
+                      <li>Tombol kirim terkunci (disabled) selama proses kirim untuk mencegah klik ganda.</li>
+                    </ul>
+                  </div>
+
+                  {/* Card 2: Mode Latihan */}
+                  <div className="bg-white p-2.5 rounded border border-stone-300 space-y-1.5">
+                    <span className="font-bold text-emerald-900 flex items-center gap-1">
+                      <RotateCcw className="w-3.5 h-3.5 text-emerald-700" />
+                      2. Mode Latihan
+                    </span>
+                    <ul className="list-disc list-inside text-stone-700 space-y-1">
+                      <li>Jawaban & refleksi dikosongkan/reset; laporan nilai resmi tidak dikirim ulang ke server spreadsheet.</li>
+                      <li>Pencatat waktu dan pelacak keluar tab dihentikan.</li>
+                      <li>Umpan balik instan: jawaban langsung ditandai <span className="text-emerald-700 font-bold">hijau (benar)</span> atau <span className="text-rose-700 font-bold">merah (salah)</span> beserta pembahasan ringkas.</li>
+                      <li>Tersedia tombol <strong>"ULANGI LATIHAN"</strong> untuk mencoba kembali secara mandiri.</li>
+                      <li>Tersedia tombol <strong>"Mulai sebagai siswa baru"</strong> (dengan dialog konfirmasi) untuk perangkat HP/Lab yang dipakai bergantian antar siswa.</li>
+                    </ul>
+                  </div>
+
+                  {/* Card 3: Pemantauan */}
+                  <div className="bg-white p-2.5 rounded border border-stone-300 space-y-1.5">
+                    <span className="font-bold text-blue-900 flex items-center gap-1">
+                      <Activity className="w-3.5 h-3.5 text-blue-700" />
+                      3. Pemantauan Integritas
+                    </span>
+                    <ul className="list-disc list-inside text-stone-700 space-y-1">
+                      <li><strong>Waktu belajar:</strong> Waktu total dan per langkah (8 langkah), hanya dihitung saat tab aktif/terlihat (<code>document.hidden === false</code>); lonjakan selisih &gt; 3 detik diabaikan.</li>
+                      <li><strong>Keluar tab:</strong> Deteksi <code>visibilitychange</code>, catat frekuensi keluar, total durasi (detik), dan log detail maks 40 entri (<code>jam, langkah, detik</code>). Siswa diberi peringatan saat kembali ke tab.</li>
+                      <li><strong>Layar penuh:</strong> Tombol fullscreen, catat berapa kali keluar layar penuh, serta cadangan overlay fixed untuk iPhone / iOS Safari.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

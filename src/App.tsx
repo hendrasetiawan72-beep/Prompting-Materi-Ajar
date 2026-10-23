@@ -366,7 +366,7 @@ export default function App() {
             <span>
               Generator Prompt Induk Slide Materi Ajar — Format Kurikulum Merdeka & Deep Learning
               </span>
-             • Developed by @hndx07 
+             <b style='color:red;'>Developed by @hndx07</b> 
           </div>
 
           <div className="flex items-center gap-4 font-mono text-[11px]">

@@ -9,20 +9,38 @@
  *   - POST    /api/autofill-topic (alias)
  *   - POST    /api/generate-slides
  *   - GET     /api/ai-status
- *   - GET     /api/debug-key (diagnostic status kunci Gemini)
+ *   - GET     /api/debug-key (diagnostic status kunci Groq & Gemini)
  *   - OPTIONS (CORS preflight) untuk seluruh rute /api/*
  *
  * Fitur:
  *   1. Mencegah kebocoran method POST ke static asset handler (penyebab HTTP 405).
- *   2. Membaca GEMINI_API_KEY dari Cloudflare Worker Secret (env.GEMINI_API_KEY),
- *      dengan fallback ke variasi penamaan dan process.env.
+ *   2. Memanggil AI lewat lib/ai-provider.ts: Groq sebagai penyedia utama
+ *      (GROQ_API_KEY) dengan Gemini sebagai cadangan (GEMINI_API_KEY).
+ *      Atur urutan dengan variabel AI_PROVIDER = auto | groq | gemini.
  *   3. Menyediakan endpoint debug aman /api/debug-key tanpa membocorkan nilai rahasia.
  * ==============================================================================
  */
 
+import {
+  AiError,
+  CURRICULUM_JSON_SCHEMA,
+  CURRICULUM_SCHEMA_NAME,
+  generateText,
+  getAiStatus,
+  getGeminiApiKey,
+  getGroqApiKey,
+  normalizeCurriculumResult,
+} from './lib/ai-provider';
+
 export interface Env {
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
+  GROQ_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  AI_PROVIDER?: string;
+  GROQ_MODEL?: string;
+  GROQ_FALLBACK_MODEL?: string;
+  GROQ_MAX_TOKENS?: string;
+  GROQ_REASONING_EFFORT?: string;
   [key: string]: any;
 }
 
@@ -54,26 +72,6 @@ function jsonResponse(data: any, status: number = 200, extraHeaders: Record<stri
   });
 }
 
-/**
- * Helper untuk mengambil GEMINI_API_KEY dari berbagai kemungkinan binding Cloudflare
- */
-function getGeminiApiKey(env?: Env): string | undefined {
-  if (!env && typeof process === 'undefined') return undefined;
-
-  const candidate =
-    env?.GEMINI_API_KEY ||
-    (env as any)?.gemini_api_key ||
-    (env as any)?.VITE_GEMINI_API_KEY ||
-    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
-
-  if (typeof candidate === 'string') {
-    const trimmed = candidate.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
-}
-
 // In-memory rate limiting per instance Worker (20 req / menit per IP)
 const ipRequestWindow = new Map<string, { count: number; resetAt: number }>();
 
@@ -91,45 +89,14 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-// Helper pemanggil REST Gemini API dengan timeout & fallback cepat
-async function callGeminiApi(
-  model: string,
-  apiKey: string,
-  systemInstruction: string,
-  userPrompt: string,
-  responseSchema?: any,
-  timeoutMs: number = 6000
-): Promise<Response> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const bodyPayload: any = {
-    contents: [{ parts: [{ text: userPrompt }] }],
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    generationConfig: {},
-  };
-
-  if (responseSchema) {
-    bodyPayload.generationConfig.responseMimeType = 'application/json';
-    bodyPayload.generationConfig.responseSchema = responseSchema;
+// Helper: ubah AiError menjadi response JSON yang konsisten
+function aiErrorResponse(err: unknown, fallbackMessage: string): Response {
+  if (err instanceof AiError) {
+    const extra: Record<string, string> = err.status === 429 ? { 'Retry-After': '30' } : {};
+    return jsonResponse({ error: err.message, code: err.code, provider: err.provider }, err.status, extra);
   }
-
-  // Gunakan AbortController dengan timeout agresif
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(bodyPayload),
-      signal: controller.signal,
-    });
-    return res;
-  } finally {
-    clearTimeout(timer);
-  }
+  const message = (err as any)?.message || fallbackMessage;
+  return jsonResponse({ error: message, code: 'NETWORK_ERROR' }, 500);
 }
 
 // Handler /api/kurikulum-ai dan /api/autofill-topic
@@ -150,18 +117,6 @@ async function handleCurriculumAi(request: Request, env: Env): Promise<Response>
     );
   }
 
-  const apiKey = getGeminiApiKey(env);
-  if (!apiKey) {
-    return jsonResponse(
-      {
-        error:
-          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret. Buka Cloudflare Dashboard > Workers & Pages > prompting-materi-ajar > Settings > Variables and Secrets, atau jalankan `npx wrangler secret put GEMINI_API_KEY`.',
-        code: 'MISSING_API_KEY',
-      },
-      503
-    );
-  }
-
   let body: any = {};
   try {
     body = await request.json();
@@ -169,7 +124,11 @@ async function handleCurriculumAi(request: Request, env: Env): Promise<Response>
     return jsonResponse({ error: 'Body permintaan harus berupa JSON yang valid.' }, 400);
   }
 
-  const { jenjang, mataPelajaran, topik, durasi, jumlahSiswa, kebutuhanKhusus, targetAudience, pendekatan } = body;
+  // Frontend mengirim topik/mataPelajaran/jenjangKelas (beserta alias topic/subject/grade).
+  const topik = body.topik || body.topic;
+  const mataPelajaran = body.mataPelajaran || body.subject;
+  const jenjang = body.jenjang || body.jenjangKelas || body.grade;
+  const { durasi, jumlahSiswa, kebutuhanKhusus, targetAudience, pendekatan } = body;
 
   if (!topik || typeof topik !== 'string' || !topik.trim()) {
     return jsonResponse({ error: 'Parameter topik wajib diisi dan tidak boleh kosong.' }, 400);
@@ -201,136 +160,35 @@ Berikan respons terstruktur dalam format JSON dengan spesifikasi properti beriku
 8. rekomendasiAktivitas: Array berisi 2 sampai 4 aktivitas yang cocok dari daftar:
    ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]`;
 
-  const schema = {
-    type: 'OBJECT',
-    properties: {
-      tujuanPembelajaran: { type: 'STRING' },
-      indikatorBelajar: { type: 'STRING' },
-      kemampuanAwal: { type: 'STRING' },
-      pendekatan: { type: 'STRING' },
-      karakterSiswa: { type: 'STRING' },
-      konteksDekat: { type: 'STRING' },
-      alurMateri: {
-        type: 'ARRAY',
-        items: { type: 'STRING' },
-      },
-      rekomendasiAktivitas: {
-        type: 'ARRAY',
-        items: { type: 'STRING' },
-      },
-    },
-    required: [
-      'tujuanPembelajaran',
-      'indikatorBelajar',
-      'kemampuanAwal',
-      'pendekatan',
-      'karakterSiswa',
-      'konteksDekat',
-      'alurMateri',
-      'rekomendasiAktivitas',
-    ],
-  };
-
   try {
-    // Multi-model loop: coba gemini-3.8-flash, lalu gemini-3.5-flash, lalu gemini-flash-latest
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
-    let res: Response | null = null;
-    let lastErr: any;
-
-    for (const m of candidateModels) {
-      try {
-        const attempt = await callGeminiApi(m, apiKey, systemInstruction, userPrompt, schema, 6000);
-        if (attempt.ok) {
-          res = attempt;
-          break;
-        }
-        if (attempt.status !== 503 && attempt.status !== 429) {
-          res = attempt;
-          break;
-        }
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    if (!res) {
-      return jsonResponse(
-        {
-          error: `Layanan AI sedang sibuk. Silakan coba kembali sesaat lagi (${lastErr?.message || 'Upstream timeout'}).`,
-          code: 'UPSTREAM_BUSY',
-        },
-        503
-      );
-    }
-
-    if (!res.ok) {
-      const errTxt = await res.text();
-      let parsedErr: any = {};
-      try {
-        parsedErr = JSON.parse(errTxt);
-      } catch {
-        // ignore
-      }
-      const msg = parsedErr?.error?.message || errTxt;
-      if (res.status === 429 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
-        return jsonResponse(
-          {
-            error: 'Batas kuota harian atau frekuensi permintaan Gemini API telah tercapai (Quota / Rate Limit). Silakan coba lagi beberapa saat kemudian.',
-            code: 'QUOTA_EXHAUSTED',
-          },
-          429
-        );
-      }
-      return jsonResponse({ error: `Gagal memanggil model Gemini (${res.status}): ${msg}`, code: 'UPSTREAM_ERROR' }, 502);
-    }
-
-    const data: any = await res.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    // Groq (utama) -> Gemini (cadangan), sesuai AI_PROVIDER dan API key yang tersedia
+    const ai = await generateText(env, {
+      systemInstruction,
+      userPrompt,
+      jsonSchema: { name: CURRICULUM_SCHEMA_NAME, schema: CURRICULUM_JSON_SCHEMA },
+      temperature: 0.7,
+      topP: 0.95,
+      groqTimeoutMs: 20000,
+      groqMaxTokens: 4096,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 6000 },
+        { model: 'gemini-flash-latest', timeoutMs: 6000 },
+      ],
+    });
 
     // Normalisasi struktur output untuk kompatibilitas frontend penuh
-    const result = {
-      tujuanPembelajaran: parsed.tujuanPembelajaran || '',
-      cptpatp: parsed.tujuanPembelajaran || parsed.cptpatp || '',
-      indikatorBelajar: parsed.indikatorBelajar || '',
-      indikator: parsed.indikatorBelajar || parsed.indikator || '',
-      kemampuanAwal: parsed.kemampuanAwal || '',
-      pengetahuanAwal: parsed.kemampuanAwal || parsed.pengetahuanAwal || '',
-      pendekatan: parsed.pendekatan || '',
-      karakterSiswa: parsed.karakterSiswa || '',
-      konteksDekat: parsed.konteksDekat || '',
-      alurMateri: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : [],
-      alurRekomendasi: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : (Array.isArray(parsed.alurRekomendasi) ? parsed.alurRekomendasi : []),
-      rekomendasiAktivitas: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : [],
-      aktivitasRekomendasi: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : (Array.isArray(parsed.aktivitasRekomendasi) ? parsed.aktivitasRekomendasi : []),
-    };
-
-    return jsonResponse(result, 200);
+    return jsonResponse(normalizeCurriculumResult(ai.json), 200, {
+      'X-AI-Provider': ai.provider,
+      'X-AI-Model': ai.model,
+    });
   } catch (err: any) {
-    return jsonResponse(
-      {
-        error: `Kesalahan jaringan saat memproses kurikulum dengan AI: ${err.message || 'Koneksi gagal'}`,
-        code: 'NETWORK_ERROR',
-      },
-      500
-    );
+    return aiErrorResponse(err, 'Kesalahan jaringan saat memproses kurikulum dengan AI.');
   }
 }
 
 // Handler /api/generate-slides
 async function handleGenerateSlides(request: Request, env: Env): Promise<Response> {
-  const apiKey = getGeminiApiKey(env);
-  if (!apiKey) {
-    return jsonResponse(
-      {
-        error: 'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret. Silakan set secret terlebih dahulu.',
-        code: 'MISSING_API_KEY',
-      },
-      503
-    );
-  }
-
   let body: any = {};
   try {
     body = await request.json();
@@ -347,32 +205,31 @@ async function handleGenerateSlides(request: Request, env: Env): Promise<Respons
     'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.';
 
   try {
-    let res: Response;
-    try {
-      res = await callGeminiApi('gemini-3.8-flash', apiKey, systemInstruction, prompt, undefined, 6000);
-      if (!res.ok && (res.status === 503 || res.status === 429)) {
-        throw new Error(`Upstream ${res.status}`);
-      }
-    } catch {
-      res = await callGeminiApi('gemini-3.5-flash', apiKey, systemInstruction, prompt, undefined, 20000);
-    }
+    const ai = await generateText(env, {
+      systemInstruction,
+      userPrompt: prompt,
+      temperature: 0.6,
+      groqTimeoutMs: 90000,
+      groqMaxTokens: 16384,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 20000 },
+      ],
+    });
 
-    if (!res.ok) {
-      const errTxt = await res.text();
-      return jsonResponse({ error: `Gagal memproses prompt dengan Gemini (${res.status}): ${errTxt}` }, 502);
-    }
-
-    const data: any = await res.json();
-    const result = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return jsonResponse({ result }, 200);
+    return jsonResponse(
+      { result: ai.text, provider: ai.provider, model: ai.model, truncated: Boolean(ai.truncated) },
+      200
+    );
   } catch (err: any) {
-    return jsonResponse({ error: `Kesalahan koneksi saat memproses slide: ${err.message}` }, 500);
+    return aiErrorResponse(err, 'Kesalahan koneksi saat memproses slide.');
   }
 }
 
 // Handler /api/debug-key (diagnostic ketersediaan secret tanpa membocorkan nilai)
 function handleDebugKey(request: Request, env: Env): Response {
-  const apiKey = getGeminiApiKey(env);
+  const geminiKey = getGeminiApiKey(env);
+  const groqKey = getGroqApiKey(env);
   const envKeys: string[] = [];
 
   if (env && typeof env === 'object') {
@@ -383,8 +240,14 @@ function handleDebugKey(request: Request, env: Env): Response {
 
   return jsonResponse(
     {
-      hasKey: Boolean(apiKey && apiKey.length > 0),
-      keyLength: apiKey ? apiKey.length : 0,
+      // Kompatibilitas lama: hasKey/keyLength merujuk ke GEMINI_API_KEY
+      hasKey: Boolean(geminiKey),
+      keyLength: geminiKey ? geminiKey.length : 0,
+      hasGroqKey: Boolean(groqKey),
+      groqKeyLength: groqKey ? groqKey.length : 0,
+      hasGeminiKey: Boolean(geminiKey),
+      geminiKeyLength: geminiKey ? geminiKey.length : 0,
+      status: getAiStatus(env),
       envKeys: envKeys,
     },
     200
@@ -438,8 +301,7 @@ export default {
           { Allow: 'GET, OPTIONS' }
         );
       }
-      const apiKey = getGeminiApiKey(env);
-      return jsonResponse({ available: Boolean(apiKey) }, 200);
+      return jsonResponse(getAiStatus(env), 200);
     }
 
     // 5. Routing: /api/debug-key

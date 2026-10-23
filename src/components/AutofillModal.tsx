@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Flame, Wand2, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PromptFormData, AlurItem } from '../types';
 import { DEFAULT_ALUR_LIST } from '../data/presets';
@@ -7,24 +7,29 @@ interface AutofillModalProps {
   isOpen: boolean;
   onClose: () => void;
   onApply: (data: Partial<PromptFormData>) => void;
-  initialTopic: string;
-  initialSubject: string;
-  initialGrade: string;
 }
 
 export const AutofillModal: React.FC<AutofillModalProps> = ({
   isOpen,
   onClose,
   onApply,
-  initialTopic,
-  initialSubject,
-  initialGrade,
 }) => {
-  const [topic, setTopic] = useState(initialTopic || '');
-  const [subject, setSubject] = useState(initialSubject || '');
-  const [grade, setGrade] = useState(initialGrade || 'SMP Kelas VIII, Fase D');
+  const [topic, setTopic] = useState('');
+  const [subject, setSubject] = useState('');
+  const [grade, setGrade] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Setiap modal dibuka, kosongkan semua kolom (tidak terisi dari data form)
+  useEffect(() => {
+    if (isOpen) {
+      setTopic('');
+      setSubject('');
+      setGrade('');
+      setError(null);
+      setIsLoading(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

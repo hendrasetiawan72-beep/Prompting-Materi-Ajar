@@ -326,7 +326,7 @@ export interface GenerateRequest {
   topP?: number;
   /** Timeout per percobaan model Groq (ms). Default 30000. */
   groqTimeoutMs?: number;
-  /** Batas token keluaran Groq. Bisa ditimpa GROQ_MAX_TOKENS. Default 8192. */
+  /** Batas token keluaran Groq. Bisa ditimpa GROQ_MAX_TOKENS. Default 4096. */
   groqMaxTokens?: number;
   /** Daftar model Gemini + timeout untuk jalur cadangan. */
   geminiAttempts?: GeminiAttempt[];
@@ -338,13 +338,10 @@ export interface GenerateResult {
   json?: any;
   provider: AiProviderName;
   model: string;
-  /** true bila keluaran terpotong karena mencapai batas token. */
-  truncated?: boolean;
 }
 
 interface RawOutput {
   text: string;
-  truncated: boolean;
 }
 
 // ------------------------------------------------------------------------------
@@ -357,7 +354,7 @@ function isGptOssModel(model: string): boolean {
 
 function buildGroqBody(model: string, req: GenerateRequest, env: AiEnv | undefined) {
   const envMax = Number.parseInt(getSetting(env, 'GROQ_MAX_TOKENS') || '', 10);
-  const maxTokens = Number.isFinite(envMax) && envMax > 0 ? envMax : req.groqMaxTokens ?? 8192;
+  const maxTokens = Number.isFinite(envMax) && envMax > 0 ? envMax : req.groqMaxTokens ?? 4096;
 
   const body: Record<string, any> = {
     model,
@@ -487,7 +484,7 @@ async function callGroq(
     if (!text.trim()) {
       throw new AiError('Groq mengembalikan respons kosong.', 502, 'EMPTY_RESPONSE', 'groq');
     }
-    return { text, truncated: choice?.finish_reason === 'length' };
+    return { text };
   } catch (err: any) {
     if (err instanceof AiError) throw err;
     if (err?.name === 'AbortError') {
@@ -596,7 +593,7 @@ async function callGemini(
     if (!text.trim()) {
       throw new AiError('Gemini mengembalikan respons kosong.', 502, 'EMPTY_RESPONSE', 'gemini');
     }
-    return { text, truncated: candidate?.finishReason === 'MAX_TOKENS' };
+    return { text };
   } catch (err: any) {
     if (err instanceof AiError) throw err;
     if (err?.name === 'AbortError') {
@@ -654,7 +651,6 @@ export async function generateText(env: AiEnv | undefined, req: GenerateRequest)
             text: out.text,
             provider: 'groq',
             model,
-            truncated: out.truncated,
           };
           if (req.jsonSchema) {
             try {
@@ -685,7 +681,6 @@ export async function generateText(env: AiEnv | undefined, req: GenerateRequest)
             text: out.text,
             provider: 'gemini',
             model: attempt.model,
-            truncated: out.truncated,
           };
           if (req.jsonSchema) {
             try {

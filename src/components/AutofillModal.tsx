@@ -96,14 +96,14 @@ export const AutofillModal: React.FC<AutofillModalProps> = ({
         if (response.status === 503 || errData.code === 'MISSING_API_KEY') {
           throw new Error(
             errData.error ||
-              'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret atau environment server.'
+              'Secret GROQ_API_KEY (atau GEMINI_API_KEY) belum dikonfigurasi di Cloudflare Worker Secret atau environment server.'
           );
         }
 
         if (response.status === 429 || errData.code === 'QUOTA_EXHAUSTED' || errData.code === 'RATE_LIMIT_EXCEEDED') {
           throw new Error(
             errData.error ||
-              'Batas kuota harian atau frekuensi permintaan Gemini API telah tercapai. Silakan coba kembali beberapa saat lagi.'
+              'Batas kuota harian atau frekuensi permintaan AI telah tercapai. Silakan coba kembali beberapa saat lagi.'
           );
         }
 
@@ -203,7 +203,7 @@ export const AutofillModal: React.FC<AutofillModalProps> = ({
           <div className="p-3 border-2 border-stone-900 bg-[#FEF08A]/40 rounded text-xs text-stone-700 leading-relaxed">
             <div className="flex items-center gap-1.5 font-bold text-stone-900 mb-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Didukung Gemini 3.8 Flash (Cloudflare Worker API)</span>
+              <span>Didukung AI Groq (cadangan Gemini) via Cloudflare Worker API</span>
             </div>
             Sebutkan topik materi pembelajaran. AI kurikulum akan merumuskan CP/TP, indikator keberhasilan, kemampuan awal, pendekatan, 8 langkah alur pembelajaran, dan rekomendasi aktivitas secara otomatis.
           </div>

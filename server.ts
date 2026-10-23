@@ -187,41 +187,6 @@ app.all(['/api/autofill-topic', '/api/autofill-topic/'], (req, res) => {
   });
 });
 
-// API: Generate slide draft / HTML using the complete prompt (Groq utama, Gemini cadangan)
-app.post(['/api/generate-slides', '/api/generate-slides/'], rateLimitMiddleware, async (req, res) => {
-  try {
-    const { prompt } = req.body || {};
-    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-      return res.status(400).json({ error: 'Prompt induk tidak boleh kosong' });
-    }
-
-    const systemInstruction =
-      'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.';
-
-    const ai = await generateText(process.env, {
-      systemInstruction,
-      userPrompt: prompt,
-      temperature: 0.6,
-      groqTimeoutMs: 90000,
-      groqMaxTokens: 16384,
-      geminiAttempts: [
-        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
-        { model: 'gemini-3.5-flash', timeoutMs: 20000 },
-      ],
-    });
-
-    return res.json({
-      result: ai.text,
-      provider: ai.provider,
-      model: ai.model,
-      truncated: Boolean(ai.truncated),
-    });
-  } catch (error: any) {
-    console.error('Error executing prompt with AI:', error);
-    return sendAiError(res, error, 'Terjadi kesalahan pada layanan AI');
-  }
-});
-
 // Vite middleware in dev or static files in production
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';

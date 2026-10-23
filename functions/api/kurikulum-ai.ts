@@ -1,11 +1,28 @@
 /**
  * Cloudflare Pages Function for /api/kurikulum-ai
  * Supports POST, OPTIONS (CORS preflight), and safely handles all HTTP methods.
- * Reads GEMINI_API_KEY from context.env.GEMINI_API_KEY (Cloudflare Worker/Pages Secret).
+ *
+ * Pemanggilan AI: Groq (GROQ_API_KEY) sebagai penyedia utama dengan Gemini
+ * (GEMINI_API_KEY) sebagai cadangan, lewat lib/ai-provider.ts.
+ * Atur urutan penyedia dengan variabel AI_PROVIDER = auto | groq | gemini.
  */
 
+import {
+  AiError,
+  CURRICULUM_JSON_SCHEMA,
+  CURRICULUM_SCHEMA_NAME,
+  generateText,
+  normalizeCurriculumResult,
+} from '../../lib/ai-provider';
+
 interface Env {
+  GROQ_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  AI_PROVIDER?: string;
+  GROQ_MODEL?: string;
+  GROQ_FALLBACK_MODEL?: string;
+  GROQ_MAX_TOKENS?: string;
+  GROQ_REASONING_EFFORT?: string;
   [key: string]: any;
 }
 
@@ -23,45 +40,21 @@ export async function onRequestOptions() {
   });
 }
 
-function getGeminiApiKey(env?: Env): string | undefined {
-  if (!env && typeof process === 'undefined') return undefined;
-  const candidate =
-    env?.GEMINI_API_KEY ||
-    (env as any)?.gemini_api_key ||
-    (env as any)?.VITE_GEMINI_API_KEY ||
-    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
-
-  if (typeof candidate === 'string') {
-    const trimmed = candidate.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
+function json(data: any, status = 200, extraHeaders: Record<string, string> = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS, ...extraHeaders },
+  });
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
 
-  const apiKey = getGeminiApiKey(env);
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({
-        error:
-          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret / Environment. Silakan jalankan `wrangler secret put GEMINI_API_KEY` atau tambahkan di dashboard Cloudflare.',
-        code: 'MISSING_API_KEY',
-      }),
-      { status: 503, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
-  }
-
   let body: any = {};
   try {
     body = await request.json();
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Body request harus berupa JSON yang valid.', code: 'INVALID_JSON' }),
-      { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    return json({ error: 'Body request harus berupa JSON yang valid.', code: 'INVALID_JSON' }, 400);
   }
 
   const topic = (body.topik || body.topic || '').toString().trim().slice(0, 300);
@@ -69,22 +62,19 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const grade = (body.jenjangKelas || body.grade || 'SMP/SMA').toString().trim().slice(0, 100);
 
   if (!topic || topic.length < 2) {
-    return new Response(
-      JSON.stringify({ error: 'Topik atau materi pembelajaran wajib diisi (minimal 2 karakter).', code: 'INVALID_INPUT' }),
-      { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    return json({ error: 'Topik atau materi pembelajaran wajib diisi (minimal 2 karakter).', code: 'INVALID_INPUT' }, 400);
   }
 
   const systemInstruction = `Kamu adalah pakar kurikulum dan pengembang materi ajar Indonesia (Kurikulum Merdeka) serta perancang pembelajaran berdiferensiasi dan Deep Learning (Mindful, Meaningful, Joyful).
 Rumuskan perencanaan kurikulum yang spesifik, kaya pedagogi, dan operasional untuk materi yang diminta.
-Hasil harus berupa objek JSON murni yang sesuai dengan responseSchema yang ditentukan.`;
+Hasil harus berupa objek JSON murni yang sesuai dengan skema yang ditentukan.`;
 
   const userPrompt = `Rumuskan perencanaan materi ajar berikut:
 - Topik / Materi Pembelajaran: ${topic}
 - Mata Pelajaran: ${subject}
 - Jenjang / Kelas / Fase: ${grade}
 
-Pastikan:
+Balas hanya dengan satu objek JSON. Pastikan:
 1. "tujuanPembelajaran": rumusan CP & TP operasional selaras Kurikulum Merdeka
 2. "indikatorBelajar": 3-4 indikator ketercapaian tujuan pembelajaran (IKTP) terukur
 3. "kemampuanAwal": prasyarat atau pemahaman dasar siswa
@@ -103,136 +93,31 @@ Pastikan:
 8. "rekomendasiAktivitas": array 3-5 aktivitas yang cocok dari daftar:
    ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]`;
 
-  const schema = {
-    type: 'OBJECT',
-    properties: {
-      tujuanPembelajaran: { type: 'STRING' },
-      indikatorBelajar: { type: 'STRING' },
-      kemampuanAwal: { type: 'STRING' },
-      pendekatan: { type: 'STRING' },
-      karakterSiswa: { type: 'STRING' },
-      konteksDekat: { type: 'STRING' },
-      alurMateri: {
-        type: 'ARRAY',
-        items: { type: 'STRING' },
-      },
-      rekomendasiAktivitas: {
-        type: 'ARRAY',
-        items: { type: 'STRING' },
-      },
-    },
-    required: [
-      'tujuanPembelajaran',
-      'indikatorBelajar',
-      'kemampuanAwal',
-      'pendekatan',
-      'karakterSiswa',
-      'konteksDekat',
-      'alurMateri',
-      'rekomendasiAktivitas',
-    ],
-  };
-
-  const callModel = async (model: string, timeoutMs: number) => {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'aistudio-build',
-        },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            topP: 0.95,
-            thinkingConfig: { thinkingLevel: 'LOW' },
-            responseMimeType: 'application/json',
-            responseSchema: schema,
-          },
-        }),
-        signal: controller.signal,
-      });
-      return res;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
   try {
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
-    let res: Response | null = null;
-    let lastErr: any;
+    const ai = await generateText(env, {
+      systemInstruction,
+      userPrompt,
+      jsonSchema: { name: CURRICULUM_SCHEMA_NAME, schema: CURRICULUM_JSON_SCHEMA },
+      temperature: 0.7,
+      topP: 0.95,
+      groqTimeoutMs: 20000,
+      groqMaxTokens: 4096,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 6000 },
+        { model: 'gemini-flash-latest', timeoutMs: 6000 },
+      ],
+    });
 
-    for (const m of candidateModels) {
-      try {
-        const attempt = await callModel(m, 6000);
-        if (attempt.ok) {
-          res = attempt;
-          break;
-        }
-        if (attempt.status !== 503 && attempt.status !== 429) {
-          res = attempt;
-          break;
-        }
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    if (!res) {
-      return new Response(
-        JSON.stringify({
-          error: `Layanan AI sedang mengalami lonjakan permintaan (${lastErr?.message || 'Upstream timeout'}). Silakan coba beberapa saat lagi.`,
-          code: 'UPSTREAM_BUSY',
-        }),
-        { status: 503, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-      );
-    }
-
-    if (!res.ok) {
-      const errTxt = await res.text();
-      return new Response(
-        JSON.stringify({ error: `Gagal memanggil model Gemini (${res.status}): ${errTxt}`, code: 'UPSTREAM_ERROR' }),
-        { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-      );
-    }
-
-    const data: any = await res.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleanJson);
-
-    const result = {
-      tujuanPembelajaran: parsed.tujuanPembelajaran || '',
-      cptpatp: parsed.tujuanPembelajaran || parsed.cptpatp || '',
-      indikatorBelajar: parsed.indikatorBelajar || '',
-      indikator: parsed.indikatorBelajar || parsed.indikator || '',
-      kemampuanAwal: parsed.kemampuanAwal || '',
-      pengetahuanAwal: parsed.kemampuanAwal || parsed.pengetahuanAwal || '',
-      pendekatan: parsed.pendekatan || '',
-      karakterSiswa: parsed.karakterSiswa || '',
-      konteksDekat: parsed.konteksDekat || '',
-      alurMateri: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : [],
-      alurRekomendasi: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : (Array.isArray(parsed.alurRekomendasi) ? parsed.alurRekomendasi : []),
-      rekomendasiAktivitas: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : [],
-      aktivitasRekomendasi: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : (Array.isArray(parsed.aktivitasRekomendasi) ? parsed.aktivitasRekomendasi : []),
-    };
-
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    return json(normalizeCurriculumResult(ai.json), 200, {
+      'X-AI-Provider': ai.provider,
+      'X-AI-Model': ai.model,
     });
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: `Kesalahan jaringan saat menghubungi AI: ${err.message}`, code: 'NETWORK_ERROR' }),
-      { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    if (err instanceof AiError) {
+      return json({ error: err.message, code: err.code, provider: err.provider }, err.status);
+    }
+    return json({ error: `Kesalahan jaringan saat menghubungi AI: ${err?.message}`, code: 'NETWORK_ERROR' }, 500);
   }
 }
 

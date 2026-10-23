@@ -1,8 +1,21 @@
 /**
  * Cloudflare Pages Function for /api/generate-slides
+ *
+ * Pemanggilan AI: Groq (GROQ_API_KEY) sebagai penyedia utama dengan Gemini
+ * (GEMINI_API_KEY) sebagai cadangan, lewat lib/ai-provider.ts.
+ * Atur urutan penyedia dengan variabel AI_PROVIDER = auto | groq | gemini.
  */
+
+import { AiError, generateText } from '../../lib/ai-provider';
+
 interface Env {
+  GROQ_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  AI_PROVIDER?: string;
+  GROQ_MODEL?: string;
+  GROQ_FALLBACK_MODEL?: string;
+  GROQ_MAX_TOKENS?: string;
+  GROQ_REASONING_EFFORT?: string;
   [key: string]: any;
 }
 
@@ -17,125 +30,50 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-function getGeminiApiKey(env?: Env): string | undefined {
-  if (!env && typeof process === 'undefined') return undefined;
-  const candidate =
-    env?.GEMINI_API_KEY ||
-    (env as any)?.gemini_api_key ||
-    (env as any)?.VITE_GEMINI_API_KEY ||
-    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
-
-  if (typeof candidate === 'string') {
-    const trimmed = candidate.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
+function json(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
-  const apiKey = getGeminiApiKey(env);
-
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({
-        error:
-          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret / Environment. Silakan jalankan `wrangler secret put GEMINI_API_KEY`.',
-        code: 'MISSING_API_KEY',
-      }),
-      { status: 503, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
-  }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Body permintaan tidak valid (JSON).' }),
-      { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    return json({ error: 'Body permintaan tidak valid (JSON).' }, 400);
   }
 
   const prompt = (body?.prompt || '').toString().trim();
   if (!prompt) {
-    return new Response(
-      JSON.stringify({ error: 'Prompt induk tidak boleh kosong' }),
-      { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    return json({ error: 'Prompt induk tidak boleh kosong' }, 400);
   }
 
-  const callModel = async (model: string, timeoutMs: number) => {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'aistudio-build',
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [
-              {
-                text: 'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.',
-              },
-            ],
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            thinkingConfig: {
-              thinkingLevel: 'LOW',
-            },
-          },
-        }),
-        signal: controller.signal,
-      });
-      return res;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+  const systemInstruction =
+    'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.';
 
   try {
-    let res: Response;
-    try {
-      res = await callModel('gemini-3.8-flash', 6000);
-      if (!res.ok && (res.status === 503 || res.status === 429)) {
-        throw new Error(`Upstream ${res.status}`);
-      }
-    } catch {
-      res = await callModel('gemini-3.5-flash', 20000);
-    }
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return new Response(
-        JSON.stringify({ error: `Gagal memproses prompt dengan Gemini AI (${res.status}): ${errText}` }),
-        { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-      );
-    }
-
-    const data: any = await res.json();
-    const result = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return new Response(JSON.stringify({ result }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    const ai = await generateText(env, {
+      systemInstruction,
+      userPrompt: prompt,
+      temperature: 0.6,
+      groqTimeoutMs: 90000,
+      groqMaxTokens: 16384,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 20000 },
+      ],
     });
+
+    return json({ result: ai.text, provider: ai.provider, model: ai.model, truncated: Boolean(ai.truncated) }, 200);
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: `Kesalahan jaringan saat memproses prompt: ${err.message}` }),
-      { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
+    if (err instanceof AiError) {
+      return json({ error: err.message, code: err.code, provider: err.provider }, err.status);
+    }
+    return json({ error: `Kesalahan jaringan saat memproses prompt: ${err?.message}` }, 500);
   }
 }
 

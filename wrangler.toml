@@ -24,21 +24,31 @@ not_found_handling = "single-page-application"
 ENVIRONMENT = "production"
 
 # ==============================================================================
-# PANDUAN PENGISIAN SECRET GEMINI_API_KEY:
+# PANDUAN PENGISIAN SECRET AI (GROQ_API_KEY dan/atau GEMINI_API_KEY):
+#
+# Aplikasi memakai Groq sebagai penyedia AI utama dan Gemini sebagai cadangan.
+# Cukup isi salah satu; bila keduanya ada, Groq dicoba lebih dulu lalu otomatis
+# beralih ke Gemini jika Groq gagal atau terkena limit.
 #
 # Secret tidak disimpan di file wrangler.toml demi keamanan.
 #
 # CARA 1 (Direkomendasikan via CLI / Terminal):
-#   npx wrangler secret put GEMINI_API_KEY
-#   (Ketik/paste API key Gemini Anda saat diminta)
+#   npx wrangler secret put GROQ_API_KEY
+#   npx wrangler secret put GEMINI_API_KEY      (opsional, sebagai cadangan)
+#   (Ketik/paste API key saat diminta)
 #
 # CARA 2 (Via Cloudflare Dashboard):
 #   1. Buka dash.cloudflare.com
 #   2. Masuk ke "Workers & Pages"
 #   3. Klik Worker: "prompting-materi-ajar"
 #   4. Klik tab "Settings" > "Variables and Secrets"
-#   5. Di bagian "Secrets", klik "Add", beri nama: GEMINI_API_KEY
+#   5. Di bagian "Secrets", klik "Add", beri nama: GROQ_API_KEY (dan/atau GEMINI_API_KEY)
 #   6. Masukkan nilainya dan klik "Deploy" / "Save"
+#
+# Pengaturan opsional (boleh ditaruh di [vars] di atas, bukan secret):
+#   AI_PROVIDER         = "auto"                   # auto | groq | gemini
+#   GROQ_MODEL          = "openai/gpt-oss-120b"
+#   GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b"
 #
 # Setelah secret di-set, lakukan deploy ulang:
 #   npm run deploy

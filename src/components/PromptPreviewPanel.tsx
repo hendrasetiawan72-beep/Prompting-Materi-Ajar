@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Download, Flame, Eye, FileText, Minimize2, Maximize2, CheckSquare } from 'lucide-react';
+import { Copy, Check, Download, Eye, FileText, Minimize2, Maximize2, CheckSquare } from 'lucide-react';
 
 interface PromptPreviewPanelProps {
   promptText: string;
@@ -10,8 +10,6 @@ interface PromptPreviewPanelProps {
   onToggleBCD: (val: boolean) => void;
   cleanUnusedLines: boolean;
   onToggleCleanLines: (val: boolean) => void;
-  onOpenAiTest: () => void;
-  isAiLoading: boolean;
 }
 
 export const PromptPreviewPanel: React.FC<PromptPreviewPanelProps> = ({
@@ -23,8 +21,6 @@ export const PromptPreviewPanel: React.FC<PromptPreviewPanelProps> = ({
   onToggleBCD,
   cleanUnusedLines,
   onToggleCleanLines,
-  onOpenAiTest,
-  isAiLoading,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -131,21 +127,9 @@ export const PromptPreviewPanel: React.FC<PromptPreviewPanelProps> = ({
       </div>
 
       {/* Bottom Action Footer */}
-      <div className="p-3 border-t-2 border-stone-900 bg-white flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
+      <div className="p-3 border-t-2 border-stone-900 bg-white flex items-center justify-center sm:justify-start shrink-0">
         <div className="text-[11px] text-stone-500 text-center sm:text-left">
           💡 Tempel prompt ini ke Gemini, Claude, atau ChatGPT untuk membuat slide.
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <button
-            type="button"
-            onClick={onOpenAiTest}
-            disabled={isAiLoading}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold border-2 border-stone-900 bg-[#E9D5FF] hover:bg-[#d8b4fe] rounded text-stone-900 neo-shadow-sm neo-shadow-hover transition-colors"
-          >
-            <Flame className="w-3.5 h-3.5 text-orange-600 fill-orange-500" />
-            <span>{isAiLoading ? 'Menjalankan...' : 'Uji Prompt Sekarang'}</span>
-          </button>
         </div>
       </div>
     </div>

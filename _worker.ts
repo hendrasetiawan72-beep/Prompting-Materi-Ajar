@@ -7,7 +7,6 @@
  * Menangani routing API:
  *   - POST    /api/kurikulum-ai
  *   - POST    /api/autofill-topic (alias)
- *   - POST    /api/generate-slides
  *   - GET     /api/ai-status
  *   - GET     /api/debug-key (diagnostic status kunci Groq & Gemini)
  *   - OPTIONS (CORS preflight) untuk seluruh rute /api/*
@@ -187,45 +186,6 @@ Berikan respons terstruktur dalam format JSON dengan spesifikasi properti beriku
   }
 }
 
-// Handler /api/generate-slides
-async function handleGenerateSlides(request: Request, env: Env): Promise<Response> {
-  let body: any = {};
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: 'Body permintaan harus berupa JSON yang valid.' }, 400);
-  }
-
-  const prompt = (body.prompt || '').toString().trim();
-  if (!prompt) {
-    return jsonResponse({ error: 'Prompt induk tidak boleh kosong.' }, 400);
-  }
-
-  const systemInstruction =
-    'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.';
-
-  try {
-    const ai = await generateText(env, {
-      systemInstruction,
-      userPrompt: prompt,
-      temperature: 0.6,
-      groqTimeoutMs: 90000,
-      groqMaxTokens: 16384,
-      geminiAttempts: [
-        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
-        { model: 'gemini-3.5-flash', timeoutMs: 20000 },
-      ],
-    });
-
-    return jsonResponse(
-      { result: ai.text, provider: ai.provider, model: ai.model, truncated: Boolean(ai.truncated) },
-      200
-    );
-  } catch (err: any) {
-    return aiErrorResponse(err, 'Kesalahan koneksi saat memproses slide.');
-  }
-}
-
 // Handler /api/debug-key (diagnostic ketersediaan secret tanpa membocorkan nilai)
 function handleDebugKey(request: Request, env: Env): Response {
   const geminiKey = getGeminiApiKey(env);
@@ -280,19 +240,7 @@ export default {
       return handleCurriculumAi(request, env);
     }
 
-    // 3. Routing: /api/generate-slides
-    if (pathname === '/api/generate-slides') {
-      if (method !== 'POST') {
-        return jsonResponse(
-          { error: `Metode ${request.method} tidak diizinkan. Gunakan POST.`, code: 'METHOD_NOT_ALLOWED' },
-          405,
-          { Allow: 'POST, OPTIONS' }
-        );
-      }
-      return handleGenerateSlides(request, env);
-    }
-
-    // 4. Routing: /api/ai-status
+    // 3. Routing: /api/ai-status
     if (pathname === '/api/ai-status') {
       if (method !== 'GET') {
         return jsonResponse(
@@ -304,7 +252,7 @@ export default {
       return jsonResponse(getAiStatus(env), 200);
     }
 
-    // 5. Routing: /api/debug-key
+    // 4. Routing: /api/debug-key
     if (pathname === '/api/debug-key') {
       if (method !== 'GET') {
         return jsonResponse(
@@ -316,7 +264,7 @@ export default {
       return handleDebugKey(request, env);
     }
 
-    // 6. Tangani seluruh rute /api/* yang tidak dikenal agar tidak bocor ke static assets
+    // 5. Tangani seluruh rute /api/* yang tidak dikenal agar tidak bocor ke static assets
     if (pathname.startsWith('/api/')) {
       return jsonResponse(
         { error: `Endpoint API '${pathname}' tidak ditemukan.`, code: 'NOT_FOUND' },
@@ -324,7 +272,7 @@ export default {
       );
     }
 
-    // 7. Non-API: Layani file statis frontend via Cloudflare Workers Static Assets
+    // 6. Non-API: Layani file statis frontend via Cloudflare Workers Static Assets
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }

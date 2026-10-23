@@ -289,6 +289,24 @@ app.get(['/api/ai-status', '/api/ai-status/'], (req, res) => {
   res.json({ available: hasKey });
 });
 
+// API: Debug Key endpoint (safe, no secret leak)
+app.get(['/api/debug-key', '/api/debug-key/'], (req, res) => {
+  const rawKey =
+    process.env.GEMINI_API_KEY ||
+    (globalThis as any)?.GEMINI_API_KEY;
+  const apiKey = typeof rawKey === 'string' && rawKey.trim().length > 0 ? rawKey.trim() : undefined;
+
+  const envKeys = Object.keys(process.env).filter(
+    (k) => k.startsWith('GEMINI') || k.startsWith('VITE_') || k === 'NODE_ENV' || k === 'PORT'
+  );
+
+  return res.json({
+    hasKey: Boolean(apiKey),
+    keyLength: apiKey ? apiKey.length : 0,
+    envKeys,
+  });
+});
+
 // API: Dedicated endpoint for /api/kurikulum-ai with rate limit & validation
 app.post(['/api/kurikulum-ai', '/api/kurikulum-ai/'], rateLimitMiddleware, handleCurriculumAi);
 app.all(['/api/kurikulum-ai', '/api/kurikulum-ai/'], (req, res) => {

@@ -1,15 +1,19 @@
 # ==============================================================================
-# Cloudflare Configuration for Generator Prompt Slide Materi Ajar
-# Compatible with both Cloudflare Workers (Static Assets) and Cloudflare Pages
+# Cloudflare Worker Configuration for Generator Prompt Slide Materi Ajar
+# Architecture: Full Cloudflare Worker with Static Assets
 # ==============================================================================
 
 name = "prompting-materi-ajar"
 main = "_worker.ts"
-compatibility_date = "2024-09-23"
+compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Cloudflare Workers with Static Assets (Wrangler v3.78+)
-# Melayani file statis dari folder ./dist sekaligus mengeksekusi _worker.ts untuk API
+# Build step otomatis: jalankan npm run build sebelum deploy
+[build]
+command = "npm run build"
+
+# Konfigurasi Static Assets (Wrangler v3.78+ / v4)
+# Melayani SPA frontend dari folder ./dist sekaligus mengeksekusi _worker.ts untuk API
 [assets]
 directory = "./dist"
 binding = "ASSETS"
@@ -20,12 +24,22 @@ not_found_handling = "single-page-application"
 ENVIRONMENT = "production"
 
 # ==============================================================================
-# CATATAN RAHASIA / SECRETS:
-# JANGAN menuliskan API Key langsung di file ini!
-# Tambahkan GEMINI_API_KEY secara aman ke Cloudflare dengan menjalankan:
+# PANDUAN PENGISIAN SECRET GEMINI_API_KEY:
 #
+# Secret tidak disimpan di file wrangler.toml demi keamanan.
+#
+# CARA 1 (Direkomendasikan via CLI / Terminal):
 #   npx wrangler secret put GEMINI_API_KEY
+#   (Ketik/paste API key Gemini Anda saat diminta)
 #
-# Atau masukkan melalui Cloudflare Dashboard:
-# Workers & Pages > prompting-materi-ajar > Settings > Variables and Secrets
+# CARA 2 (Via Cloudflare Dashboard):
+#   1. Buka dash.cloudflare.com
+#   2. Masuk ke "Workers & Pages"
+#   3. Klik Worker: "prompting-materi-ajar"
+#   4. Klik tab "Settings" > "Variables and Secrets"
+#   5. Di bagian "Secrets", klik "Add", beri nama: GEMINI_API_KEY
+#   6. Masukkan nilainya dan klik "Deploy" / "Save"
+#
+# Setelah secret di-set, lakukan deploy ulang:
+#   npm run deploy
 # ==============================================================================

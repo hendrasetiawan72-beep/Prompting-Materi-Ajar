@@ -2,18 +2,21 @@
  * ==============================================================================
  * Cloudflare Worker Entrypoint (_worker.ts)
  * ==============================================================================
- * Digunakan saat deploy via Cloudflare Workers (dengan Static Assets)
- * maupun Cloudflare Pages Advanced Mode.
+ * Dikonfigurasi sebagai Full Cloudflare Worker dengan Static Assets.
  *
  * Menangani routing API:
  *   - POST    /api/kurikulum-ai
  *   - POST    /api/autofill-topic (alias)
  *   - POST    /api/generate-slides
  *   - GET     /api/ai-status
+ *   - GET     /api/debug-key (diagnostic status kunci Gemini)
  *   - OPTIONS (CORS preflight) untuk seluruh rute /api/*
  *
- * Mencegah kebocoran request POST ke static asset handler yang menyebabkan HTTP 405.
- * Membaca GEMINI_API_KEY langsung dari env.GEMINI_API_KEY (Cloudflare Worker Secret).
+ * Fitur:
+ *   1. Mencegah kebocoran method POST ke static asset handler (penyebab HTTP 405).
+ *   2. Membaca GEMINI_API_KEY dari Cloudflare Worker Secret (env.GEMINI_API_KEY),
+ *      dengan fallback ke variasi penamaan dan process.env.
+ *   3. Menyediakan endpoint debug aman /api/debug-key tanpa membocorkan nilai rahasia.
  * ==============================================================================
  */
 
@@ -51,8 +54,29 @@ function jsonResponse(data: any, status: number = 200, extraHeaders: Record<stri
   });
 }
 
+/**
+ * Helper untuk mengambil GEMINI_API_KEY dari berbagai kemungkinan binding Cloudflare
+ */
+function getGeminiApiKey(env?: Env): string | undefined {
+  if (!env && typeof process === 'undefined') return undefined;
+
+  const candidate =
+    env?.GEMINI_API_KEY ||
+    (env as any)?.gemini_api_key ||
+    (env as any)?.VITE_GEMINI_API_KEY ||
+    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
+    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
+
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
+}
+
 // In-memory rate limiting per instance Worker (20 req / menit per IP)
 const ipRequestWindow = new Map<string, { count: number; resetAt: number }>();
+
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const entry = ipRequestWindow.get(ip);
@@ -78,30 +102,18 @@ async function callGeminiApi(
 ): Promise<Response> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  const payload: any = {
-    systemInstruction: {
-      parts: [{ text: systemInstruction }],
-    },
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: userPrompt }],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      topP: 0.95,
-      thinkingConfig: {
-        thinkingLevel: 'LOW',
-      },
-    },
+  const bodyPayload: any = {
+    contents: [{ parts: [{ text: userPrompt }] }],
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: {},
   };
 
   if (responseSchema) {
-    payload.generationConfig.responseMimeType = 'application/json';
-    payload.generationConfig.responseSchema = responseSchema;
+    bodyPayload.generationConfig.responseMimeType = 'application/json';
+    bodyPayload.generationConfig.responseSchema = responseSchema;
   }
 
+  // Gunakan AbortController dengan timeout agresif
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -110,9 +122,8 @@ async function callGeminiApi(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'aistudio-build',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(bodyPayload),
       signal: controller.signal,
     });
     return res;
@@ -121,78 +132,73 @@ async function callGeminiApi(
   }
 }
 
-// Handler utama /api/kurikulum-ai & /api/autofill-topic
+// Handler /api/kurikulum-ai dan /api/autofill-topic
 async function handleCurriculumAi(request: Request, env: Env): Promise<Response> {
-  // Rate limiting per IP
-  const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'edge-client';
+  const clientIp =
+    request.headers.get('cf-connecting-ip') ||
+    request.headers.get('x-forwarded-for') ||
+    'anonymous';
+
   if (!checkRateLimit(clientIp)) {
     return jsonResponse(
       {
-        error: 'Terlalu banyak permintaan dalam waktu singkat (Rate Limit). Silakan tunggu 1 menit.',
+        error: 'Terlalu banyak permintaan AI dalam 1 menit. Mohon tunggu beberapa detik sebelum mencoba lagi.',
         code: 'RATE_LIMIT_EXCEEDED',
       },
-      429
+      429,
+      { 'Retry-After': '60' }
     );
   }
 
-  // Prioritaskan env.GEMINI_API_KEY dari Cloudflare Secrets
-  const apiKey = env.GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
+  const apiKey = getGeminiApiKey(env);
   if (!apiKey) {
     return jsonResponse(
       {
         error:
-          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret. Silakan jalankan `wrangler secret put GEMINI_API_KEY` atau atur di Cloudflare Dashboard.',
+          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret. Buka Cloudflare Dashboard > Workers & Pages > prompting-materi-ajar > Settings > Variables and Secrets, atau jalankan `npx wrangler secret put GEMINI_API_KEY`.',
         code: 'MISSING_API_KEY',
       },
       503
     );
   }
 
-  // Parse Body
   let body: any = {};
   try {
     body = await request.json();
   } catch {
-    return jsonResponse({ error: 'Body permintaan harus berupa JSON yang valid.', code: 'INVALID_JSON' }, 400);
+    return jsonResponse({ error: 'Body permintaan harus berupa JSON yang valid.' }, 400);
   }
 
-  const inputTopic = (body.topik || body.topic || '').toString().trim().slice(0, 300);
-  const inputSubject = (body.mataPelajaran || body.subject || 'Umum').toString().trim().slice(0, 100);
-  const inputGrade = (body.jenjangKelas || body.grade || 'SMP/SMA').toString().trim().slice(0, 100);
+  const { jenjang, mataPelajaran, topik, durasi, jumlahSiswa, kebutuhanKhusus, targetAudience, pendekatan } = body;
 
-  if (!inputTopic || inputTopic.length < 2) {
-    return jsonResponse(
-      { error: 'Topik atau materi pembelajaran wajib diisi (minimal 2 karakter).', code: 'INVALID_INPUT' },
-      400
-    );
+  if (!topik || typeof topik !== 'string' || !topik.trim()) {
+    return jsonResponse({ error: 'Parameter topik wajib diisi dan tidak boleh kosong.' }, 400);
   }
 
-  const systemInstruction = `Kamu adalah pakar kurikulum dan pengembang materi ajar Indonesia (Kurikulum Merdeka) serta perancang pembelajaran berdiferensiasi dan Deep Learning (Mindful, Meaningful, Joyful).
-Rumuskan perencanaan kurikulum yang spesifik, kaya pedagogi, dan operasional untuk materi yang diminta.
-Hasil harus berupa objek JSON murni yang sesuai dengan schema yang ditentukan.`;
+  const audienceText = targetAudience || jenjang || 'Siswa Sekolah';
+  const pendekatanText = pendekatan || 'Kontekstual dan Interaktif';
 
-  const userPrompt = `Rumuskan perencanaan materi ajar berikut:
-- Topik / Materi Pembelajaran: ${inputTopic}
-- Mata Pelajaran: ${inputSubject}
-- Jenjang / Kelas / Fase: ${inputGrade}
+  const systemInstruction = `Kamu adalah pakar kurikulum dan instruksional desain pendidikan Indonesia (Kurikulum Merdeka dan standar pembelajaran aktif modern).
+Tugasmu adalah menganalisis mata pelajaran, jenjang, dan topik yang diberikan oleh guru, lalu menghasilkan panduan rancangan pembelajaran yang aplikatif, runtut, dan kaya konteks lokal/kehidupan nyata siswa.
+Semua output wajib berbahasa Indonesia yang baik, lugas, profesional, dan langsung dapat dieksekusi di kelas.`;
 
-Pastikan data terstruktur mencakup:
-1. "tujuanPembelajaran": Rumusan CP & TP operasional selaras Kurikulum Merdeka
-2. "indikatorBelajar": 3-4 indikator ketercapaian tujuan pembelajaran (IKTP) terukur
-3. "kemampuanAwal": Prasyarat atau kompetensi awal siswa
-4. "pendekatan": Pendekatan pembelajaran yang cocok (misalnya Deep Learning (mindful, meaningful, joyful) / PBL / PjBL / Inkuiri Terbimbing)
-5. "karakterSiswa": Karakter umum siswa di jenjang ini beserta tantangan belajar yang khas
-6. "konteksDekat": Konteks dunia nyata, lingkungan lokal siswa, atau analogi konkret yang sangat relevan
-7. "alurMateri": Array berisi 8 langkah alur pembelajaran yang runtut:
-   - Pembuka + pertanyaan pemantik
-   - Tujuan & alur belajar
-   - Apersepsi
-   - Input materi (konsep, contoh, istilah)
-   - Latihan bertahap (scaffolding)
-   - Aktivitas inti
-   - Asesmen
-   - Refleksi & tindak lanjut
-8. "rekomendasiAktivitas": Array berisi 3-5 aktivitas yang cocok dari daftar:
+  const userPrompt = `Rancang kerangka pembelajaran untuk:
+- Mata Pelajaran: ${mataPelajaran || 'Umum'}
+- Jenjang / Target Sasaran: ${audienceText}
+- Topik Pembelajaran: ${topik}
+- Estimasi Durasi: ${durasi || '2 x 45 menit'}
+- Karakteristik / Kebutuhan Siswa: ${kebutuhanKhusus || jumlahSiswa ? `${jumlahSiswa || ''} siswa. ${kebutuhanKhusus || ''}` : 'Reguler/heterogen'}
+- Pendekatan Utama: ${pendekatanText}
+
+Berikan respons terstruktur dalam format JSON dengan spesifikasi properti berikut:
+1. tujuanPembelajaran: Kalimat SMART tujuan pembelajaran spesifik untuk topik ini.
+2. indikatorBelajar: 2-3 bukti konkret atau kriteria ketercapaian tujuan belajar (KKTP).
+3. kemampuanAwal: Pengetahuan atau keterampilan prasyarat yang relevan.
+4. pendekatan: Penjelasan ringkas penerapan pendekatan belajar aktif (${pendekatanText}).
+5. karakterSiswa: Penyesuaian metode belajar berdasarkan profil murid.
+6. konteksDekat: Contoh konkret/fenomena lokal di sekitar murid yang relevan dengan topik ini.
+7. alurMateri: Array berisi 4 sampai 6 tahapan materi logis dan bertahap (dari pengenalan hingga penerapan).
+8. rekomendasiAktivitas: Array berisi 2 sampai 4 aktivitas yang cocok dari daftar:
    ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]`;
 
   const schema = {
@@ -314,7 +320,7 @@ Pastikan data terstruktur mencakup:
 
 // Handler /api/generate-slides
 async function handleGenerateSlides(request: Request, env: Env): Promise<Response> {
-  const apiKey = env.GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
+  const apiKey = getGeminiApiKey(env);
   if (!apiKey) {
     return jsonResponse(
       {
@@ -364,6 +370,27 @@ async function handleGenerateSlides(request: Request, env: Env): Promise<Respons
   }
 }
 
+// Handler /api/debug-key (diagnostic ketersediaan secret tanpa membocorkan nilai)
+function handleDebugKey(request: Request, env: Env): Response {
+  const apiKey = getGeminiApiKey(env);
+  const envKeys: string[] = [];
+
+  if (env && typeof env === 'object') {
+    for (const key of Object.keys(env)) {
+      envKeys.push(key);
+    }
+  }
+
+  return jsonResponse(
+    {
+      hasKey: Boolean(apiKey && apiKey.length > 0),
+      keyLength: apiKey ? apiKey.length : 0,
+      envKeys: envKeys,
+    },
+    200
+  );
+}
+
 // Router Utama Worker
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
@@ -411,11 +438,23 @@ export default {
           { Allow: 'GET, OPTIONS' }
         );
       }
-      const apiKey = env.GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
+      const apiKey = getGeminiApiKey(env);
       return jsonResponse({ available: Boolean(apiKey) }, 200);
     }
 
-    // 5. Tangani seluruh rute /api/* yang tidak dikenal agar tidak bocor ke static assets
+    // 5. Routing: /api/debug-key
+    if (pathname === '/api/debug-key') {
+      if (method !== 'GET') {
+        return jsonResponse(
+          { error: `Metode ${request.method} tidak diizinkan. Gunakan GET.`, code: 'METHOD_NOT_ALLOWED' },
+          405,
+          { Allow: 'GET, OPTIONS' }
+        );
+      }
+      return handleDebugKey(request, env);
+    }
+
+    // 6. Tangani seluruh rute /api/* yang tidak dikenal agar tidak bocor ke static assets
     if (pathname.startsWith('/api/')) {
       return jsonResponse(
         { error: `Endpoint API '${pathname}' tidak ditemukan.`, code: 'NOT_FOUND' },
@@ -423,7 +462,7 @@ export default {
       );
     }
 
-    // 6. Non-API: Layani file statis frontend via Cloudflare Workers Static Assets
+    // 7. Non-API: Layani file statis frontend via Cloudflare Workers Static Assets
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }

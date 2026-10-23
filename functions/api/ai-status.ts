@@ -17,8 +17,24 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
+function getGeminiApiKey(env?: Env): string | undefined {
+  if (!env && typeof process === 'undefined') return undefined;
+  const candidate =
+    env?.GEMINI_API_KEY ||
+    (env as any)?.gemini_api_key ||
+    (env as any)?.VITE_GEMINI_API_KEY ||
+    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
+    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
+
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
+}
+
 export async function onRequestGet(context: { env: Env }) {
-  const hasKey = Boolean(context.env?.GEMINI_API_KEY || (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY));
+  const hasKey = Boolean(getGeminiApiKey(context.env));
   return new Response(JSON.stringify({ available: hasKey }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },

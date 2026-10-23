@@ -1,13 +1,11 @@
 import React from 'react';
-import { Copy, Flame, BookOpen, Check, Download, RotateCcw } from 'lucide-react';
+import { Copy, BookOpen, Check, Download, RotateCcw } from 'lucide-react';
 
 interface HeaderProps {
   onCopy: () => void;
   copied: boolean;
   onDownload: () => void;
   onReset: () => void;
-  onOpenAiTest: () => void;
-  isAiLoading: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,8 +13,6 @@ export const Header: React.FC<HeaderProps> = ({
   copied,
   onDownload,
   onReset,
-  onOpenAiTest,
-  isAiLoading,
 }) => {
   return (
     <header className="border-b-2 border-stone-900 bg-[#FAF7F2] sticky top-0 z-40">
@@ -71,16 +67,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Download className="w-3.5 h-3.5" />
             <span>Unduh .MD</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenAiTest}
-            disabled={isAiLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-2 border-stone-900 bg-[#E9D5FF] hover:bg-[#d8b4fe] rounded text-stone-900 neo-shadow-sm neo-shadow-hover transition-colors whitespace-nowrap"
-          >
-            <Flame className="w-3.5 h-3.5 text-orange-600 fill-orange-500" />
-            <span>{isAiLoading ? 'Memproses...' : 'Uji AI'}</span>
           </button>
 
           <button

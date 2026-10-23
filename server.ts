@@ -2,7 +2,16 @@ import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
+import {
+  AiError,
+  CURRICULUM_JSON_SCHEMA,
+  CURRICULUM_SCHEMA_NAME,
+  generateText,
+  getAiStatus,
+  getGeminiApiKey,
+  getGroqApiKey,
+  normalizeCurriculumResult,
+} from './lib/ai-provider';
 
 dotenv.config();
 
@@ -48,59 +57,19 @@ const rateLimitMiddleware = (req: Request, res: Response, next: NextFunction) =>
   next();
 };
 
-// Initialize Google GenAI client (server-side only)
-const getAiClient = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
+// Kirim AiError (atau error lain) sebagai response JSON yang konsisten
+function sendAiError(res: Response, error: unknown, fallbackMessage: string) {
+  if (error instanceof AiError) {
+    if (error.status === 429) res.setHeader('Retry-After', '30');
+    return res.status(error.status).json({ error: error.message, code: error.code, provider: error.provider });
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
+  return res.status(500).json({
+    error: (error as any)?.message || fallbackMessage,
+    code: 'NETWORK_ERROR',
   });
-};
-
-// Map error to human-friendly Indonesian message
-function formatGeminiError(error: any) {
-  const message = error?.message || '';
-  const status = error?.status || error?.statusCode;
-
-  if (status === 429 || message.includes('RESOURCE_EXHAUSTED') || message.toLowerCase().includes('quota')) {
-    return {
-      status: 429,
-      error: 'Batas kuota harian atau frekuensi permintaan Gemini API telah tercapai (Rate Limit / Quota Exceeded). Silakan coba lagi beberapa saat kemudian.',
-      code: 'QUOTA_EXHAUSTED',
-    };
-  }
-
-  if (status === 400 || status === 403 || message.includes('API_KEY_INVALID')) {
-    return {
-      status: status || 403,
-      error: 'Kunci GEMINI_API_KEY tidak valid atau izin ditolak. Pastikan Secret GEMINI_API_KEY sudah benar.',
-      code: 'AUTH_ERROR',
-    };
-  }
-
-  if (message.includes('fetch failed') || message.includes('ECONNREFUSED') || message.includes('ETIMEDOUT')) {
-    return {
-      status: 504,
-      error: 'Gagal menghubungi server Gemini API karena kendala koneksi jaringan. Silakan periksa koneksi dan coba kembali.',
-      code: 'NETWORK_ERROR',
-    };
-  }
-
-  return {
-    status: 502,
-    error: `Gagal memproses permintaan dengan AI: ${message || 'Terjadi kesalahan pada layanan AI'}`,
-    code: 'UPSTREAM_ERROR',
-  };
 }
 
-// Handler for curriculum AI generation
+// Handler for curriculum AI generation (Groq utama, Gemini cadangan)
 async function handleCurriculumAi(req: Request, res: Response) {
   try {
     const { topik, topic, mataPelajaran, subject, jenjangKelas, grade } = req.body || {};
@@ -115,24 +84,16 @@ async function handleCurriculumAi(req: Request, res: Response) {
       });
     }
 
-    const ai = getAiClient();
-    if (!ai) {
-      return res.status(503).json({
-        error: 'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret atau environment server.',
-        code: 'MISSING_API_KEY',
-      });
-    }
-
     const systemInstruction = `Kamu adalah pakar kurikulum dan pengembang materi ajar Indonesia (Kurikulum Merdeka) serta perancang pembelajaran berdiferensiasi dan Deep Learning (Mindful, Meaningful, Joyful).
 Rumuskan perencanaan kurikulum yang spesifik, kaya pedagogi, dan operasional untuk materi yang diminta.
-Hasil harus berupa objek JSON murni yang sesuai dengan responseSchema yang ditentukan.`;
+Hasil harus berupa objek JSON murni yang sesuai dengan skema yang ditentukan.`;
 
     const userPrompt = `Rumuskan perencanaan materi ajar berikut:
 - Topik / Materi Pembelajaran: ${inputTopic}
 - Mata Pelajaran: ${inputSubject}
 - Jenjang / Kelas / Fase: ${inputGrade}
 
-Pastikan:
+Balas hanya dengan satu objek JSON. Pastikan:
 1. tujuanPembelajaran: rumusan CP & TP operasional selaras Kurikulum Merdeka
 2. indikatorBelajar: 3-4 indikator ketercapaian tujuan pembelajaran (IKTP) konkret
 3. kemampuanAwal: prasyarat atau pemahaman dasar siswa
@@ -151,158 +112,59 @@ Pastikan:
 8. rekomendasiAktivitas: array 3-5 aktivitas yang cocok dari daftar:
    ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]`;
 
-    const requestConfig = {
+    const ai = await generateText(process.env, {
       systemInstruction,
-      responseMimeType: 'application/json',
-      thinkingConfig: {
-        thinkingLevel: ThinkingLevel.LOW,
-      },
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          tujuanPembelajaran: {
-            type: Type.STRING,
-            description: 'Rumusan Capaian Pembelajaran & Tujuan Pembelajaran operasional',
-          },
-          indikatorBelajar: {
-            type: Type.STRING,
-            description: '3-4 indikator ketercapaian tujuan pembelajaran terukur',
-          },
-          kemampuanAwal: {
-            type: Type.STRING,
-            description: 'Prasyarat dasar yang sudah dimiliki siswa',
-          },
-          pendekatan: {
-            type: Type.STRING,
-            description: 'Pendekatan pedagogis yang cocok',
-          },
-          karakterSiswa: {
-            type: Type.STRING,
-            description: 'Karakteristik dan tantangan siswa di jenjang ini',
-          },
-          konteksDekat: {
-            type: Type.STRING,
-            description: 'Konteks kehidupan nyata atau analogi relevan',
-          },
-          alurMateri: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: '8 langkah alur pembelajaran runtut',
-          },
-          rekomendasiAktivitas: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: 'Rekomendasi 3-5 nama aktivitas',
-          },
-        },
-        required: [
-          'tujuanPembelajaran',
-          'indikatorBelajar',
-          'kemampuanAwal',
-          'pendekatan',
-          'karakterSiswa',
-          'konteksDekat',
-          'alurMateri',
-          'rekomendasiAktivitas',
-        ],
-      },
-    };
+      userPrompt,
+      jsonSchema: { name: CURRICULUM_SCHEMA_NAME, schema: CURRICULUM_JSON_SCHEMA },
+      temperature: 0.7,
+      topP: 0.95,
+      groqTimeoutMs: 20000,
+      groqMaxTokens: 4096,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 6000 },
+        { model: 'gemini-flash-latest', timeoutMs: 6000 },
+      ],
+    });
 
-    // Helper with fast timeout for resilient fallback
-    const callWithTimeout = (model: string, timeoutMs: number) => {
-      let timeoutHandle: any;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutHandle = setTimeout(() => reject(new Error(`Timeout ${timeoutMs}ms`)), timeoutMs);
-      });
-
-      return Promise.race([
-        ai.models.generateContent({
-          model,
-          contents: userPrompt,
-          config: requestConfig,
-        }),
-        timeoutPromise,
-      ]).finally(() => clearTimeout(timeoutHandle));
-    };
-
-    // Multi-model resilient fallback loop
-    const tryModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
-    let response: any;
-    let lastError: any;
-
-    for (const model of tryModels) {
-      try {
-        response = await callWithTimeout(model, 6000);
-        if (response && response.text) {
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Model ${model} unavailable, trying next model:`, err?.message || err);
-      }
-    }
-
-    if (!response || !response.text) {
-      throw lastError || new Error('Layanan model AI sedang mengalami lonjakan beban');
-    }
-
-    const rawText = response.text || '{}';
-    let parsed: any;
-    try {
-      const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-      parsed = JSON.parse(cleanJson);
-    } catch {
-      return res.status(502).json({
-        error: 'Format data dari AI tidak valid. Silakan coba klik Buatkan Isian Otomatis lagi.',
-        code: 'PARSE_ERROR',
-      });
-    }
-
-    // Normalized response with full backward and forward compatibility
-    const normalized = {
-      tujuanPembelajaran: parsed.tujuanPembelajaran || '',
-      cptpatp: parsed.tujuanPembelajaran || parsed.cptpatp || '',
-      indikatorBelajar: parsed.indikatorBelajar || '',
-      indikator: parsed.indikatorBelajar || parsed.indikator || '',
-      kemampuanAwal: parsed.kemampuanAwal || '',
-      pengetahuanAwal: parsed.kemampuanAwal || parsed.pengetahuanAwal || '',
-      pendekatan: parsed.pendekatan || '',
-      karakterSiswa: parsed.karakterSiswa || '',
-      konteksDekat: parsed.konteksDekat || '',
-      alurMateri: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : [],
-      alurRekomendasi: Array.isArray(parsed.alurMateri) ? parsed.alurMateri : (Array.isArray(parsed.alurRekomendasi) ? parsed.alurRekomendasi : []),
-      rekomendasiAktivitas: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : [],
-      aktivitasRekomendasi: Array.isArray(parsed.rekomendasiAktivitas) ? parsed.rekomendasiAktivitas : (Array.isArray(parsed.aktivitasRekomendasi) ? parsed.aktivitasRekomendasi : []),
-    };
-
-    return res.json(normalized);
+    res.setHeader('X-AI-Provider', ai.provider);
+    res.setHeader('X-AI-Model', ai.model);
+    return res.json(normalizeCurriculumResult(ai.json));
   } catch (error: any) {
     console.error('Error in handleCurriculumAi:', error);
-    const { status, error: errorMsg, code } = formatGeminiError(error);
-    return res.status(status).json({ error: errorMsg, code });
+    return sendAiError(res, error, 'Terjadi kesalahan pada layanan AI');
   }
 }
 
-// API: Check AI availability
+// API: Check AI availability (penyedia utama & cadangan)
 app.get(['/api/ai-status', '/api/ai-status/'], (req, res) => {
-  const hasKey = Boolean(process.env.GEMINI_API_KEY);
-  res.json({ available: hasKey });
+  res.json(getAiStatus(process.env));
 });
 
 // API: Debug Key endpoint (safe, no secret leak)
 app.get(['/api/debug-key', '/api/debug-key/'], (req, res) => {
-  const rawKey =
-    process.env.GEMINI_API_KEY ||
-    (globalThis as any)?.GEMINI_API_KEY;
-  const apiKey = typeof rawKey === 'string' && rawKey.trim().length > 0 ? rawKey.trim() : undefined;
+  const geminiKey = getGeminiApiKey(process.env);
+  const groqKey = getGroqApiKey(process.env);
 
   const envKeys = Object.keys(process.env).filter(
-    (k) => k.startsWith('GEMINI') || k.startsWith('VITE_') || k === 'NODE_ENV' || k === 'PORT'
+    (k) =>
+      k.startsWith('GEMINI') ||
+      k.startsWith('GROQ') ||
+      k === 'AI_PROVIDER' ||
+      k.startsWith('VITE_') ||
+      k === 'NODE_ENV' ||
+      k === 'PORT'
   );
 
   return res.json({
-    hasKey: Boolean(apiKey),
-    keyLength: apiKey ? apiKey.length : 0,
+    // Kompatibilitas lama: hasKey/keyLength merujuk ke GEMINI_API_KEY
+    hasKey: Boolean(geminiKey),
+    keyLength: geminiKey ? geminiKey.length : 0,
+    hasGroqKey: Boolean(groqKey),
+    groqKeyLength: groqKey ? groqKey.length : 0,
+    hasGeminiKey: Boolean(geminiKey),
+    geminiKeyLength: geminiKey ? geminiKey.length : 0,
+    status: getAiStatus(process.env),
     envKeys,
   });
 });
@@ -325,51 +187,38 @@ app.all(['/api/autofill-topic', '/api/autofill-topic/'], (req, res) => {
   });
 });
 
-// API: Generate slide draft / HTML using the complete prompt
+// API: Generate slide draft / HTML using the complete prompt (Groq utama, Gemini cadangan)
 app.post(['/api/generate-slides', '/api/generate-slides/'], rateLimitMiddleware, async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return res.status(400).json({ error: 'Prompt induk tidak boleh kosong' });
-    }
-
-    const ai = getAiClient();
-    if (!ai) {
-      return res.status(503).json({
-        error: 'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret atau environment server.',
-      });
     }
 
     const systemInstruction =
       'Kamu adalah desainer pembelajaran dan pengembang materi ajar berpengalaman sekaligus developer front-end. Ikuti aturan Bagian B-D dengan sangat disiplin, akurat, dan tanpa basa-basi.';
 
-    let response: any;
-    try {
-      response = await Promise.race([
-        ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            systemInstruction,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          },
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout 6s')), 6000)),
-      ]);
-    } catch {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
-        contents: prompt,
-        config: { systemInstruction },
-      });
-    }
+    const ai = await generateText(process.env, {
+      systemInstruction,
+      userPrompt: prompt,
+      temperature: 0.6,
+      groqTimeoutMs: 90000,
+      groqMaxTokens: 16384,
+      geminiAttempts: [
+        { model: 'gemini-3.8-flash', timeoutMs: 6000 },
+        { model: 'gemini-3.5-flash', timeoutMs: 20000 },
+      ],
+    });
 
-    const result = response.text || '';
-    return res.json({ result });
+    return res.json({
+      result: ai.text,
+      provider: ai.provider,
+      model: ai.model,
+      truncated: Boolean(ai.truncated),
+    });
   } catch (error: any) {
-    console.error('Error executing prompt with Gemini:', error);
-    const { status, error: errorMsg } = formatGeminiError(error);
-    return res.status(status).json({ error: errorMsg });
+    console.error('Error executing prompt with AI:', error);
+    return sendAiError(res, error, 'Terjadi kesalahan pada layanan AI');
   }
 });
 

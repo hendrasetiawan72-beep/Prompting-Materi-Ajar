@@ -1,7 +1,7 @@
 /**
- * Cloudflare Pages Function / Worker Handler for /api/kurikulum-ai
- * Compatible with Cloudflare Workers runtime and Pages Functions.
- * Reads GEMINI_API_KEY from Cloudflare Worker Secrets (context.env.GEMINI_API_KEY).
+ * Cloudflare Pages Function for /api/kurikulum-ai
+ * Supports POST, OPTIONS (CORS preflight), and safely handles all HTTP methods.
+ * Reads GEMINI_API_KEY from context.env.GEMINI_API_KEY (Cloudflare Worker/Pages Secret).
  */
 
 interface Env {
@@ -9,27 +9,10 @@ interface Env {
   [key: string]: any;
 }
 
-// In-memory rate limiting per IP for Worker edge instance (20 req / min)
-const requestCounts = new Map<string, { count: number; resetTime: number }>();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const record = requestCounts.get(ip);
-  if (!record || now > record.resetTime) {
-    requestCounts.set(ip, { count: 1, resetTime: now + 60000 });
-    return true;
-  }
-  if (record.count >= 20) {
-    return false;
-  }
-  record.count += 1;
-  return true;
-}
-
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -43,36 +26,24 @@ export async function onRequestOptions() {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
 
-  // Rate Limiting
-  const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'global';
-  if (!checkRateLimit(clientIp)) {
-    return new Response(
-      JSON.stringify({
-        error: 'Terlalu banyak permintaan dalam waktu singkat (Rate Limit). Silakan tunggu 1 menit sebelum mencoba kembali.',
-      }),
-      { status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-    );
-  }
-
-  // Get API key from Cloudflare Worker Secret
-  const apiKey = env.GEMINI_API_KEY || (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
+  const apiKey = env?.GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
   if (!apiKey) {
     return new Response(
       JSON.stringify({
-        error: 'Secret GEMINI_API_KEY belum dikonfigurasi pada Cloudflare Worker Secrets atau environment server.',
+        error:
+          'Secret GEMINI_API_KEY belum dikonfigurasi di Cloudflare Worker Secret / Environment. Silakan jalankan `wrangler secret put GEMINI_API_KEY` atau tambahkan di dashboard Cloudflare.',
         code: 'MISSING_API_KEY',
       }),
       { status: 503, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   }
 
-  // Parse & Validate Request Body
-  let body: any;
+  let body: any = {};
   try {
     body = await request.json();
   } catch {
     return new Response(
-      JSON.stringify({ error: 'Format body request tidak valid (bukan JSON).' }),
+      JSON.stringify({ error: 'Body request harus berupa JSON yang valid.', code: 'INVALID_JSON' }),
       { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   }
@@ -83,28 +54,28 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   if (!topic || topic.length < 2) {
     return new Response(
-      JSON.stringify({ error: 'Topik atau materi pembelajaran wajib diisi (minimal 2 karakter).' }),
+      JSON.stringify({ error: 'Topik atau materi pembelajaran wajib diisi (minimal 2 karakter).', code: 'INVALID_INPUT' }),
       { status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   }
 
   const systemInstruction = `Kamu adalah pakar kurikulum dan pengembang materi ajar Indonesia (Kurikulum Merdeka) serta perancang pembelajaran berdiferensiasi dan Deep Learning (Mindful, Meaningful, Joyful).
-Tugasmu adalah merumuskan perencanaan kurikulum yang spesifik, kaya pedagogi, dan operasional untuk materi yang diminta.
-Hasil harus dalam format JSON murni yang sesuai dengan schema yang ditentukan.`;
+Rumuskan perencanaan kurikulum yang spesifik, kaya pedagogi, dan operasional untuk materi yang diminta.
+Hasil harus berupa objek JSON murni yang sesuai dengan responseSchema yang ditentukan.`;
 
   const userPrompt = `Rumuskan perencanaan materi ajar berikut:
 - Topik / Materi Pembelajaran: ${topic}
 - Mata Pelajaran: ${subject}
 - Jenjang / Kelas / Fase: ${grade}
 
-Format output JSON harus memiliki keys berikut:
-1. "tujuanPembelajaran": Rumusan CP & TP yang spesifik, operasional selaras Kurikulum Merdeka
-2. "indikatorBelajar": 3-4 indikator ketercapaian tujuan pembelajaran (IKTP) yang terukur
-3. "kemampuanAwal": Prasyarat atau kompetensi awal yang biasanya sudah dimiliki siswa
-4. "pendekatan": Pendekatan pembelajaran yang cocok (misalnya Deep Learning (mindful, meaningful, joyful) / PBL / PjBL / Inkuiri Terbimbing)
-5. "karakterSiswa": Karakter umum siswa di jenjang ini beserta tantangan belajar yang khas
-6. "konteksDekat": Konteks dunia nyata, lingkungan lokal siswa, atau analogi konkret yang sangat relevan
-7. "alurMateri": Array berisi 8 langkah alur pembelajaran yang runtut:
+Pastikan:
+1. "tujuanPembelajaran": rumusan CP & TP operasional selaras Kurikulum Merdeka
+2. "indikatorBelajar": 3-4 indikator ketercapaian tujuan pembelajaran (IKTP) terukur
+3. "kemampuanAwal": prasyarat atau pemahaman dasar siswa
+4. "pendekatan": pendekatan yang cocok (misalnya Deep Learning (mindful, meaningful, joyful) / PBL / PjBL / Inkuiri Terbimbing)
+5. "karakterSiswa": karakter umum siswa di jenjang ini beserta tantangan belajar yang khas
+6. "konteksDekat": konteks dunia nyata, lingkungan lokal siswa, atau analogi konkret yang sangat relevan
+7. "alurMateri": array 8 langkah alur pembelajaran berurutan:
    - Pembuka + pertanyaan pemantik
    - Tujuan & alur belajar
    - Apersepsi
@@ -113,12 +84,10 @@ Format output JSON harus memiliki keys berikut:
    - Aktivitas inti
    - Asesmen
    - Refleksi & tindak lanjut
-8. "rekomendasiAktivitas": Array berisi 3-5 nama aktivitas dari daftar berikut yang paling cocok:
-   ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]
+8. "rekomendasiAktivitas": array 3-5 aktivitas yang cocok dari daftar:
+   ["studi kasus singkat", "think-pair-share", "demonstrasi + latihan terbimbing", "latihan soal bertahap", "kuis interaktif", "diskusi kelompok", "simulasi/role play", "investigasi data/sumber", "proyek/produk"]`;
 
-Hanya kembalikan JSON valid tanpa teks pengantar atau penutup.`;
-
-  const schemaConfig = {
+  const schema = {
     type: 'OBJECT',
     properties: {
       tujuanPembelajaran: { type: 'STRING' },
@@ -148,101 +117,81 @@ Hanya kembalikan JSON valid tanpa teks pengantar atau penutup.`;
     ],
   };
 
-  const executeGeminiCall = async (modelName: string) => {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const payload = {
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.7,
-        topP: 0.95,
-        thinkingConfig: { thinkingLevel: 'LOW' },
-        responseSchema: schemaConfig,
-      },
-    };
+  const callModel = async (model: string, timeoutMs: number) => {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    return fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'aistudio-build',
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'aistudio-build',
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            topP: 0.95,
+            thinkingConfig: { thinkingLevel: 'LOW' },
+            responseMimeType: 'application/json',
+            responseSchema: schema,
+          },
+        }),
+        signal: controller.signal,
+      });
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   try {
-    // Primary: gemini-3.8-flash. Fallback if temporary 503 high demand spike: gemini-3.5-flash
-    let response = await executeGeminiCall('gemini-3.8-flash');
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+    let res: Response | null = null;
+    let lastErr: any;
 
-    if (!response.ok && (response.status === 503 || response.status === 429)) {
-      const errTxt = await response.clone().text().catch(() => '');
-      if (response.status === 503 || errTxt.includes('high demand') || errTxt.includes('UNAVAILABLE')) {
-        response = await executeGeminiCall('gemini-3.5-flash');
-      }
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let parsedError: any = {};
+    for (const m of candidateModels) {
       try {
-        parsedError = JSON.parse(errorText);
-      } catch {
-        // ignore
+        const attempt = await callModel(m, 6000);
+        if (attempt.ok) {
+          res = attempt;
+          break;
+        }
+        if (attempt.status !== 503 && attempt.status !== 429) {
+          res = attempt;
+          break;
+        }
+      } catch (e) {
+        lastErr = e;
       }
+    }
 
-      const status = response.status;
-      const errorMsg = parsedError?.error?.message || '';
-
-      if (status === 429 || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('quota')) {
-        return new Response(
-          JSON.stringify({
-            error: 'Batas kuota harian atau frekuensi permintaan Gemini API telah tercapai (Quota / Rate Limit). Silakan coba lagi beberapa saat kemudian.',
-            code: 'QUOTA_EXHAUSTED',
-          }),
-          { status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-        );
-      }
-
-      if (status === 400 || status === 403) {
-        return new Response(
-          JSON.stringify({
-            error: `Autentikasi Gemini API gagal atau kunci tidak valid (${parsedError?.error?.status || status}). Pastikan GEMINI_API_KEY benar.`,
-            code: 'AUTH_ERROR',
-          }),
-          { status: status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-        );
-      }
-
+    if (!res) {
       return new Response(
         JSON.stringify({
-          error: `Gagal memanggil model Gemini (${status}): ${errorMsg || 'Terjadi kesalahan pada server AI.'}`,
-          code: 'UPSTREAM_ERROR',
+          error: `Layanan AI sedang mengalami lonjakan permintaan (${lastErr?.message || 'Upstream timeout'}). Silakan coba beberapa saat lagi.`,
+          code: 'UPSTREAM_BUSY',
         }),
+        { status: 503, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+      );
+    }
+
+    if (!res.ok) {
+      const errTxt = await res.text();
+      return new Response(
+        JSON.stringify({ error: `Gagal memanggil model Gemini (${res.status}): ${errTxt}`, code: 'UPSTREAM_ERROR' }),
         { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
       );
     }
 
-    const data: any = await response.json();
+    const data: any = await res.json();
     const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleanJson);
 
-    // Parse JSON
-    let parsed: any;
-    try {
-      const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-      parsed = JSON.parse(cleanJson);
-    } catch {
-      return new Response(
-        JSON.stringify({
-          error: 'Format data dari Gemini AI tidak dapat diproses. Silakan coba klik Buatkan Isian Otomatis lagi.',
-          code: 'PARSE_ERROR',
-        }),
-        { status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
-      );
-    }
-
-    // Normalize and alias fields to guarantee compatibility with existing code
     const result = {
       tujuanPembelajaran: parsed.tujuanPembelajaran || '',
       cptpatp: parsed.tujuanPembelajaran || parsed.cptpatp || '',
@@ -261,18 +210,37 @@ Hanya kembalikan JSON valid tanpa teks pengantar atau penutup.`;
 
     return new Response(JSON.stringify(result), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        ...CORS_HEADERS,
-      },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({
-        error: `Kesalahan jaringan saat menghubungi Gemini API: ${err.message || 'Koneksi gagal'}`,
-        code: 'NETWORK_ERROR',
-      }),
+      JSON.stringify({ error: `Kesalahan jaringan saat menghubungi AI: ${err.message}`, code: 'NETWORK_ERROR' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   }
+}
+
+// Universal handler for Cloudflare Pages Functions
+export async function onRequest(context: { request: Request; env: Env }) {
+  const method = context.request.method.toUpperCase();
+  if (method === 'OPTIONS') {
+    return onRequestOptions();
+  }
+  if (method === 'POST') {
+    return onRequestPost(context);
+  }
+  return new Response(
+    JSON.stringify({
+      error: `Metode ${context.request.method} tidak diizinkan. Gunakan POST.`,
+      code: 'METHOD_NOT_ALLOWED',
+    }),
+    {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json',
+        'Allow': 'POST, OPTIONS',
+        ...CORS_HEADERS,
+      },
+    }
+  );
 }

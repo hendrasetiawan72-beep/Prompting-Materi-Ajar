@@ -225,13 +225,25 @@ Pastikan:
       ]).finally(() => clearTimeout(timeoutHandle));
     };
 
-    // Primary: gemini-3.8-flash (5s limit). Fallback: gemini-3.5-flash
+    // Multi-model resilient fallback loop
+    const tryModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
     let response: any;
-    try {
-      response = await callWithTimeout('gemini-3.8-flash', 5000);
-    } catch (err: any) {
-      console.warn('gemini-3.8-flash busy/timeout, switching to gemini-3.5-flash:', err?.message || err);
-      response = await callWithTimeout('gemini-3.5-flash', 15000);
+    let lastError: any;
+
+    for (const model of tryModels) {
+      try {
+        response = await callWithTimeout(model, 6000);
+        if (response && response.text) {
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${model} unavailable, trying next model:`, err?.message || err);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error('Layanan model AI sedang mengalami lonjakan beban');
     }
 
     const rawText = response.text || '{}';
@@ -272,19 +284,31 @@ Pastikan:
 }
 
 // API: Check AI availability
-app.get('/api/ai-status', (req, res) => {
+app.get(['/api/ai-status', '/api/ai-status/'], (req, res) => {
   const hasKey = Boolean(process.env.GEMINI_API_KEY);
   res.json({ available: hasKey });
 });
 
 // API: Dedicated endpoint for /api/kurikulum-ai with rate limit & validation
-app.post('/api/kurikulum-ai', rateLimitMiddleware, handleCurriculumAi);
+app.post(['/api/kurikulum-ai', '/api/kurikulum-ai/'], rateLimitMiddleware, handleCurriculumAi);
+app.all(['/api/kurikulum-ai', '/api/kurikulum-ai/'], (req, res) => {
+  res.status(405).setHeader('Allow', 'POST, OPTIONS').json({
+    error: `Metode ${req.method} tidak diizinkan. Gunakan POST.`,
+    code: 'METHOD_NOT_ALLOWED',
+  });
+});
 
 // API: Alias /api/autofill-topic for backward compatibility
-app.post('/api/autofill-topic', rateLimitMiddleware, handleCurriculumAi);
+app.post(['/api/autofill-topic', '/api/autofill-topic/'], rateLimitMiddleware, handleCurriculumAi);
+app.all(['/api/autofill-topic', '/api/autofill-topic/'], (req, res) => {
+  res.status(405).setHeader('Allow', 'POST, OPTIONS').json({
+    error: `Metode ${req.method} tidak diizinkan. Gunakan POST.`,
+    code: 'METHOD_NOT_ALLOWED',
+  });
+});
 
 // API: Generate slide draft / HTML using the complete prompt
-app.post('/api/generate-slides', rateLimitMiddleware, async (req, res) => {
+app.post(['/api/generate-slides', '/api/generate-slides/'], rateLimitMiddleware, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {

@@ -1,0 +1,19 @@
+# ==============================================================================
+# Cloudflare Workers / Pages Local Development Secrets
+# ==============================================================================
+# File ini adalah contoh konfigurasi secret untuk pengujian lokal dengan Wrangler:
+#   npx wrangler dev
+# atau
+#   npx wrangler pages dev dist
+#
+# CARA PENGGUNAAN:
+# 1. Salin file ini menjadi .dev.vars:
+#      cp .dev.vars.example .dev.vars
+# 2. Ganti nilai GEMINI_API_KEY di bawah dengan kunci Gemini API Anda:
+#      https://aistudio.google.com/app/apikey
+#
+# PENTING: File .dev.vars berisi rahasia nyata dan JANGAN di-commit ke Git.
+# File .dev.vars sudah otomatis di-ignore oleh .gitignore.
+# ==============================================================================
+
+GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere"

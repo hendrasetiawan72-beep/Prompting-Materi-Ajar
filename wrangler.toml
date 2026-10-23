@@ -1,0 +1,31 @@
+# ==============================================================================
+# Cloudflare Configuration for Generator Prompt Slide Materi Ajar
+# Compatible with both Cloudflare Workers (Static Assets) and Cloudflare Pages
+# ==============================================================================
+
+name = "prompting-materi-ajar"
+main = "_worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Workers with Static Assets (Wrangler v3.78+)
+# Melayani file statis dari folder ./dist sekaligus mengeksekusi _worker.ts untuk API
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"
+
+[vars]
+ENVIRONMENT = "production"
+
+# ==============================================================================
+# CATATAN RAHASIA / SECRETS:
+# JANGAN menuliskan API Key langsung di file ini!
+# Tambahkan GEMINI_API_KEY secara aman ke Cloudflare dengan menjalankan:
+#
+#   npx wrangler secret put GEMINI_API_KEY
+#
+# Atau masukkan melalui Cloudflare Dashboard:
+# Workers & Pages > prompting-materi-ajar > Settings > Variables and Secrets
+# ==============================================================================

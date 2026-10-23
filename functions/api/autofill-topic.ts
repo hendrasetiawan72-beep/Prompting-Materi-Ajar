@@ -1,6 +1,6 @@
 /**
- * Cloudflare Pages Function / Worker Handler for /api/autofill-topic (Alias)
+ * Cloudflare Pages Function for /api/autofill-topic (Alias)
  */
-import { onRequestPost, onRequestOptions } from './kurikulum-ai';
+import { onRequest, onRequestPost, onRequestOptions } from './kurikulum-ai';
 
-export { onRequestPost, onRequestOptions };
+export { onRequest, onRequestPost, onRequestOptions };

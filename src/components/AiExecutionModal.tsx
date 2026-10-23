@@ -19,6 +19,8 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'text' | 'preview'>('text');
+  const [aiInfo, setAiInfo] = useState<string>('');
+  const [truncated, setTruncated] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -26,6 +28,8 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
     setIsLoading(true);
     setError(null);
     setResult('');
+    setAiInfo('');
+    setTruncated(false);
 
     try {
       const response = await fetch('/api/generate-slides', {
@@ -36,11 +40,16 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Gagal memproses prompt dengan Gemini AI.');
+        throw new Error(data.error || 'Gagal memproses prompt dengan AI.');
       }
 
       const data = await response.json();
       setResult(data.result || 'Tidak ada teks yang dihasilkan.');
+      if (data.provider) {
+        const providerLabel = data.provider === 'groq' ? 'Groq' : 'Gemini';
+        setAiInfo(data.model ? `${providerLabel} · ${data.model}` : providerLabel);
+      }
+      setTruncated(Boolean(data.truncated));
 
       // Auto switch to preview if html found
       if (data.result && (data.result.includes('<div') || data.result.includes('<!DOCTYPE') || data.result.includes('<html'))) {
@@ -48,7 +57,7 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Terjadi kesalahan saat memanggil model Gemini.');
+      setError(err.message || 'Terjadi kesalahan saat memanggil model AI.');
     } finally {
       setIsLoading(false);
     }
@@ -93,7 +102,7 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
             </div>
             <div>
               <h3 className="font-heading font-bold text-sm uppercase tracking-wider text-stone-900">
-                Uji & Pratinjau Output Materi Ajar (Gemini 3.8 Flash)
+                Uji & Pratinjau Output Materi Ajar{aiInfo ? ` (${aiInfo})` : ''}
               </h3>
               <p className="text-[11px] text-stone-600">
                 AI akan mengeksekusi Prompt Induk sesuai aturan Bagian B–D secara disiplin dan terstruktur.
@@ -192,7 +201,7 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
                 Merancang Slide Materi Ajar...
               </div>
               <p className="text-xs text-stone-600 max-w-md">
-                Gemini sedang memetakan Tahap 1 (asumsi & tabel alur), Tahap 2 (slide materi / kode HTML interaktif), dan Tahap 3 (kunci & rubrik penilaian).
+                AI sedang memetakan Tahap 1 (asumsi & tabel alur), Tahap 2 (slide materi / kode HTML interaktif), dan Tahap 3 (kunci & rubrik penilaian).
               </p>
             </div>
           )}
@@ -215,6 +224,16 @@ export const AiExecutionModal: React.FC<AiExecutionModalProps> = ({
               <p className="text-xs text-stone-600 max-w-md">
                 Klik tombol <span className="font-bold text-stone-900">"Mulai Jalankan Prompt"</span> di atas untuk mengeksekusi prompt yang sudah Anda susun dan melihat hasil slide materi ajar secara langsung.
               </p>
+            </div>
+          )}
+
+          {!isLoading && result && truncated && (
+            <div className="mb-3 p-3 border-2 border-amber-900 bg-amber-50 text-amber-900 text-xs rounded-md">
+              <div className="font-bold mb-0.5">Output terpotong</div>
+              <div>
+                Hasil mencapai batas token keluaran model, sehingga kode atau isi slide bisa belum lengkap.
+                Klik "Jalankan Ulang", atau naikkan GROQ_MAX_TOKENS di konfigurasi server.
+              </div>
             </div>
           )}
 

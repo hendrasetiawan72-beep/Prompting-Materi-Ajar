@@ -11,7 +11,6 @@ import { SectionAsesmenOutput } from './components/SectionAsesmenOutput';
 import { SectionVisualCatatan } from './components/SectionVisualCatatan';
 import { PromptPreviewPanel } from './components/PromptPreviewPanel';
 import { AutofillModal } from './components/AutofillModal';
-import { AiExecutionModal } from './components/AiExecutionModal';
 import {
   FileText,
   Flame,
@@ -33,7 +32,6 @@ export default function App() {
 
   // Modals state
   const [isAutofillOpen, setIsAutofillOpen] = useState<boolean>(false);
-  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Update a single form field
@@ -176,8 +174,6 @@ export default function App() {
         copied={copied}
         onDownload={handleDownloadPrompt}
         onReset={handleResetForm}
-        onOpenAiTest={() => setIsAiModalOpen(true)}
-        isAiLoading={false}
       />
 
       {/* Hero Banner Section */}
@@ -355,8 +351,6 @@ export default function App() {
               onToggleBCD={setIncludeSectionsBCD}
               cleanUnusedLines={cleanUnusedLines}
               onToggleCleanLines={setCleanUnusedLines}
-              onOpenAiTest={() => setIsAiModalOpen(true)}
-              isAiLoading={false}
             />
           </div>
         </div>
@@ -402,14 +396,6 @@ export default function App() {
         initialTopic={formData.topikMateri}
         initialSubject={formData.mataPelajaran}
         initialGrade={formData.jenjangKelasFase}
-      />
-
-      {/* AI Execution & Interactive Slide Preview Modal */}
-      <AiExecutionModal
-        isOpen={isAiModalOpen}
-        onClose={() => setIsAiModalOpen(false)}
-        promptText={generatedPrompt}
-        isHtmlFormat={formData.formatKeluaran === 'C'}
       />
     </div>
   );

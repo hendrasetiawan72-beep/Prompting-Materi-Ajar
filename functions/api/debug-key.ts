@@ -1,9 +1,15 @@
 /**
  * Cloudflare Pages Function for /api/debug-key
- * Endpoint debug sementara untuk memeriksa ketersediaan GEMINI_API_KEY tanpa membocorkan nilai key.
+ * Endpoint debug sementara untuk memeriksa ketersediaan GROQ_API_KEY dan GEMINI_API_KEY
+ * tanpa membocorkan nilai key.
  */
+
+import { getAiStatus, getGeminiApiKey, getGroqApiKey } from '../../lib/ai-provider';
+
 interface Env {
+  GROQ_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  AI_PROVIDER?: string;
   [key: string]: any;
 }
 
@@ -14,36 +20,27 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-function getGeminiApiKey(env?: Env): string | undefined {
-  if (!env && typeof process === 'undefined') return undefined;
-  const candidate =
-    env?.GEMINI_API_KEY ||
-    (env as any)?.gemini_api_key ||
-    (env as any)?.VITE_GEMINI_API_KEY ||
-    (typeof globalThis !== 'undefined' && (globalThis as any)?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
-
-  if (typeof candidate === 'string') {
-    const trimmed = candidate.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
-}
-
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
 export async function onRequestGet(context: { env: Env }) {
-  const apiKey = getGeminiApiKey(context.env);
+  const geminiKey = getGeminiApiKey(context.env);
+  const groqKey = getGroqApiKey(context.env);
   const envKeys: string[] = [];
   if (context.env && typeof context.env === 'object') {
     envKeys.push(...Object.keys(context.env));
   }
   return new Response(
     JSON.stringify({
-      hasKey: Boolean(apiKey),
-      keyLength: apiKey ? apiKey.length : 0,
+      // Kompatibilitas lama: hasKey/keyLength merujuk ke GEMINI_API_KEY
+      hasKey: Boolean(geminiKey),
+      keyLength: geminiKey ? geminiKey.length : 0,
+      hasGroqKey: Boolean(groqKey),
+      groqKeyLength: groqKey ? groqKey.length : 0,
+      hasGeminiKey: Boolean(geminiKey),
+      geminiKeyLength: geminiKey ? geminiKey.length : 0,
+      status: getAiStatus(context.env),
       envKeys,
     }),
     {

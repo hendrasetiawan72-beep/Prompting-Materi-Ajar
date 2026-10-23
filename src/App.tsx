@@ -365,8 +365,7 @@ export default function App() {
             </div>
             <span>
               Generator Prompt Induk Slide Materi Ajar — Format Kurikulum Merdeka & Deep Learning
-              </span>
-             <b>Developed by @hndx07</b> 
+            </span>
           </div>
 
           <div className="flex items-center gap-4 font-mono text-[11px]">
@@ -394,9 +393,6 @@ export default function App() {
         isOpen={isAutofillOpen}
         onClose={() => setIsAutofillOpen(false)}
         onApply={handleApplyPreset}
-        initialTopic={formData.topikMateri}
-        initialSubject={formData.mataPelajaran}
-        initialGrade={formData.jenjangKelasFase}
       />
     </div>
   );

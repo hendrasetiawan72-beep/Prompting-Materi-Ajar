@@ -36,7 +36,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
           className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold border-2 border-stone-900 bg-[#E9D5FF] hover:bg-[#d8b4fe] rounded text-stone-900 neo-shadow-sm neo-shadow-hover transition-colors shrink-0"
         >
           <Flame className="w-3.5 h-3.5 text-orange-600 fill-orange-500" />
-          <span>🔥 Auto-Isi Topik Baru dengan AI</span>
+          <span> Auto-Isi Topik Baru dengan AI</span>
         </button>
       </div>
 

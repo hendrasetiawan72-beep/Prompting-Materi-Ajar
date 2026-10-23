@@ -33,5 +33,5 @@ GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere"
 # GROQ_FALLBACK_MODEL="openai/gpt-oss-20b"
 
 # Batas token keluaran Groq (menimpa default per fitur) dan usaha reasoning (low|medium|high)
-# GROQ_MAX_TOKENS="16384"
+# GROQ_MAX_TOKENS="4096"
 # GROQ_REASONING_EFFORT="low"

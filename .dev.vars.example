@@ -9,11 +9,29 @@
 # CARA PENGGUNAAN:
 # 1. Salin file ini menjadi .dev.vars:
 #      cp .dev.vars.example .dev.vars
-# 2. Ganti nilai GEMINI_API_KEY di bawah dengan kunci Gemini API Anda:
-#      https://aistudio.google.com/app/apikey
+# 2. Isi GROQ_API_KEY (penyedia AI utama) dan/atau GEMINI_API_KEY (cadangan):
+#      Groq   : https://console.groq.com/keys
+#      Gemini : https://aistudio.google.com/app/apikey
 #
 # PENTING: File .dev.vars berisi rahasia nyata dan JANGAN di-commit ke Git.
 # File .dev.vars sudah otomatis di-ignore oleh .gitignore.
 # ==============================================================================
 
+# Penyedia AI utama (Groq). Cukup salah satu key saja sudah bisa berjalan.
+GROQ_API_KEY="gsk_YourGroqApiKeyHere"
+
+# Penyedia AI cadangan (Gemini). Dipakai otomatis jika Groq gagal/limit.
 GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere"
+
+# --- Opsional -----------------------------------------------------------------
+# Urutan penyedia: auto (Groq lalu Gemini, default) | groq | gemini
+# AI_PROVIDER="auto"
+
+# Model Groq. Cek model aktif di https://console.groq.com/docs/models
+# (llama-3.3-70b-versatile & llama-3.1-8b-instant sudah dihentikan Groq per 16 Agustus 2026)
+# GROQ_MODEL="openai/gpt-oss-120b"
+# GROQ_FALLBACK_MODEL="openai/gpt-oss-20b"
+
+# Batas token keluaran Groq (menimpa default per fitur) dan usaha reasoning (low|medium|high)
+# GROQ_MAX_TOKENS="16384"
+# GROQ_REASONING_EFFORT="low"

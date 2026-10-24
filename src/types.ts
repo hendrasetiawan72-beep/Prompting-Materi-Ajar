@@ -15,12 +15,26 @@ export interface AlurItem {
   customNote?: string;
 }
 
+// Bentuk soal kuis. Boleh dipilih lebih dari satu (disimpan sebagai array).
 export type BentukSoalType =
   | 'pilihan ganda'
   | 'mcma'
   | 'pg_kompleks_kategori_3'
-  | 'essay'
-  | 'campuran pilihan ganda & essay';
+  | 'essay';
+
+// Pengaturan permintaan pencarian media (gambar & video YouTube) oleh AI untuk satu target
+export interface AiMediaTarget {
+  gambar: boolean;
+  video: boolean;
+  maksGambar: number;
+  maksVideo: number;
+  kataKunci: string;
+}
+
+export interface AiMediaSettings {
+  materi: AiMediaTarget;
+  soal: AiMediaTarget;
+}
 
 export interface QuizSettings {
   web3formKey: string;
@@ -28,7 +42,7 @@ export interface QuizSettings {
   appScriptUrl: string;
   sheetName: string;
   namaGuru: string;
-  bentukSoal: BentukSoalType | string;
+  bentukSoal: BentukSoalType[];
   hitungNilaiLangsung: boolean;
   timerDurasi: boolean;
   timerMenit: number;
@@ -94,6 +108,9 @@ export interface PromptFormData {
   // LAMPIRAN MEDIA HTML MATERI & SOAL
   htmlMediaMateri: string;
   htmlMediaSoal: string;
+
+  // PENCARIAN MEDIA OLEH AI (gambar & embed YouTube dari internet)
+  aiMedia: AiMediaSettings;
 
   // 9. CATATAN KHUSUS
   catatanKhusus: string;

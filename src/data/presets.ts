@@ -1,4 +1,33 @@
-import { PromptFormData, PresetTemplate } from '../types';
+import { PromptFormData, PresetTemplate, BentukSoalType, AiMediaSettings } from '../types';
+
+// Pilihan bentuk soal kuis (boleh dipilih lebih dari satu)
+export const BENTUK_SOAL_OPTIONS: { id: BentukSoalType; label: string; hint: string }[] = [
+  { id: 'pilihan ganda', label: 'Pilihan Ganda Tunggal', hint: '1 jawaban benar, radio button' },
+  { id: 'mcma', label: 'PG Kompleks MCMA', hint: 'Pilih lebih dari 1 jawaban benar, checkbox' },
+  { id: 'pg_kompleks_kategori_3', label: 'PG Kompleks Kategori', hint: 'Tabel 3 pernyataan Benar/Salah (AKM)' },
+  { id: 'essay', label: 'Essay / Uraian', hint: 'Jawaban uraian bebas + rubrik' },
+];
+
+// Menerima array (format baru) maupun string (format lama) lalu mengembalikan
+// daftar bentuk soal yang valid, terurut, dan minimal berisi satu bentuk.
+export function normalizeBentukSoal(value: unknown): BentukSoalType[] {
+  let raw: string[] = [];
+  if (Array.isArray(value)) raw = value.map(String);
+  else if (typeof value === 'string' && value) raw = [value];
+
+  const semua = BENTUK_SOAL_OPTIONS.map((o) => o.id);
+  // Format lama "campuran pilihan ganda & essay" = keempat bentuk
+  if (raw.includes('campuran pilihan ganda & essay')) return semua;
+
+  const terpilih = semua.filter((id) => raw.includes(id));
+  return terpilih.length > 0 ? terpilih : ['pilihan ganda'];
+}
+
+// Bawaan pencarian media oleh AI: materi (gambar + video), soal (gambar saja)
+export const DEFAULT_AI_MEDIA: AiMediaSettings = {
+  materi: { gambar: true, video: true, maksGambar: 4, maksVideo: 2, kataKunci: '' },
+  soal: { gambar: true, video: false, maksGambar: 2, maksVideo: 1, kataKunci: '' },
+};
 
 export const DEFAULT_ALUR_LIST = [
   { id: '1', label: 'Pembuka + pertanyaan pemantik', enabled: true },
@@ -130,7 +159,7 @@ export const INITIAL_FORM_DATA: PromptFormData = {
     appScriptUrl: 'https://script.google.com/macros/s/AKfycbx.../exec',
     sheetName: 'Nilai_Siswa',
     namaGuru: 'Pak Budi Santoso, S.Kom.',
-    bentukSoal: 'pilihan ganda',
+    bentukSoal: ['pilihan ganda'],
     hitungNilaiLangsung: true,
     timerDurasi: true,
     timerMenit: 15,
@@ -161,6 +190,7 @@ export const INITIAL_FORM_DATA: PromptFormData = {
   // LAMPIRAN MEDIA HTML MATERI & SOAL
   htmlMediaMateri: '<div class="p-3 bg-white border-2 border-stone-800 rounded-md shadow-[2px_2px_0px_#1c1917]"><img src="https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&auto=format&fit=crop&q=80" alt="Ilustrasi Phishing Cyber Security" class="w-full h-44 object-cover rounded mb-2" /><p class="text-xs text-stone-600 italic">Gambar 1. Anatomi pesan phishing yang menyamar sebagai layanan resmi.</p></div>',
   htmlMediaSoal: '<div class="p-2 border border-rose-300 bg-rose-50 rounded text-center"><img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=600&auto=format&fit=crop&q=80" alt="Kasus Soal Analisis URL Palsu" class="mx-auto h-36 object-cover rounded mb-1" /><span class="text-[11px] font-mono text-stone-700">Perhatikan tangkapan layar domain di atas untuk menjawab soal nomor 1-3.</span></div>',
+  aiMedia: DEFAULT_AI_MEDIA,
 
   // 9. CATATAN KHUSUS
   catatanKhusus: 'Gunakan studi kasus pesan WhatsApp phishing nyata, hindari penjelasan teknis kriptografi yang terlalu rumit, fokus pada critical thinking siswa.',
@@ -217,7 +247,7 @@ export const PRESET_TEMPLATES: PresetTemplate[] = [
         appScriptUrl: 'https://script.google.com/macros/s/AKfycbxExample.../exec',
         sheetName: 'Nilai_English_Fase_F',
         namaGuru: 'Ms. Ratna Sari, M.Pd.',
-        bentukSoal: 'campuran pilihan ganda & essay',
+        bentukSoal: ['pilihan ganda', 'mcma', 'pg_kompleks_kategori_3', 'essay'],
         hitungNilaiLangsung: true,
         timerDurasi: true,
         timerMenit: 20,
@@ -237,7 +267,8 @@ export const PRESET_TEMPLATES: PresetTemplate[] = [
       paletFont: 'Navy deep, vanilla cream, pastel mint & font Space Grotesk / Fraunces',
       efekSlide: 'Slide-In Horizontal Dinamis (Geser Kiri-Kanan Carousel)',
       logoGambar: 'placeholder logo sekolah & ikon audio headphone',
-      htmlMediaMateri: '<div class="p-3 bg-white border-2 border-stone-800 rounded-md shadow-[2px_2px_0px_#1c1917]"><div class="aspect-video w-full rounded overflow-hidden mb-2"><iframe class="w-full h-full" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Listening Hook: AI Debate" allowfullscreen></iframe></div><p class="text-xs text-stone-600 italic">Listening Hook: Watch and note down the 2 main arguments stated by the speakers.</p></div>',
+      // Video Listening Hook dicarikan AI (A.8 pencarian media); sebelumnya berisi embed contoh yang bukan materi.
+      htmlMediaMateri: '',
       htmlMediaSoal: '<div class="p-3 border-2 border-stone-800 bg-sky-50 rounded text-left"><p class="text-xs font-bold text-sky-900 mb-1">Reading Stimulus Text for Questions 1-3:</p><blockquote class="text-xs italic bg-white p-2.5 rounded border border-sky-300 text-stone-800">"While generative AI empowers students to brainstorm rapidly, over-reliance can attenuate analytical rigor. Consequently, critical literacy must be prioritized over mere algorithmic outputs."</blockquote></div>',
       emojiIkon: 'ya',
       catatanKhusus: 'Pastikan keempat keterampilan (Listening, Speaking, Reading, Writing) terwadahi dengan instruksi bertahap yang jelas dan hasil karya esai siswa langsung tercatat rapi ke Google Spreadsheet guru.',

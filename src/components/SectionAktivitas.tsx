@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PromptFormData } from '../types';
 import { AKTIVITAS_KATEGORI } from '../data/presets';
+import { AiMediaPanel } from './AiMediaPanel';
 import { Check, CheckSquare, Link as LinkIcon, AlertCircle, Image, Video, Eye, Film } from 'lucide-react';
 
 interface SectionAktivitasProps {
@@ -149,9 +150,16 @@ export const SectionAktivitas: React.FC<SectionAktivitasProps> = ({
             Sediakan kode HTML untuk gambar ilustrasi konsep, diagram alur, atau video penjelasan materi (YouTube / MP4) yang akan disematkan di slide materi:
           </p>
 
+          <AiMediaPanel
+            title="Materi"
+            keywordPlaceholder="Kata kunci / preferensi (opsional), mis. contoh pesan phishing WhatsApp, kanal edukasi, durasi di bawah 5 menit"
+            value={data.aiMedia.materi}
+            onChange={(next) => onChange('aiMedia', { ...data.aiMedia, materi: next })}
+          />
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase text-stone-800">
-              Kode HTML Media Materi:
+              Kode HTML Media Materi (opsional):
             </span>
 
             <div className="flex flex-wrap items-center gap-1.5">
@@ -172,7 +180,7 @@ export const SectionAktivitas: React.FC<SectionAktivitasProps> = ({
                 onClick={() =>
                   onChange(
                     'htmlMediaMateri',
-                    '<div class="aspect-video w-full rounded overflow-hidden border-2 border-stone-900 shadow-[2px_2px_0px_#1c1917]"><iframe class="w-full h-full" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Video Penjelasan Materi" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>'
+                    '<div class="aspect-video w-full rounded overflow-hidden border-2 border-stone-900 shadow-[2px_2px_0px_#1c1917]"><iframe class="w-full h-full" src="https://www.youtube.com/embed/GANTI-ID-VIDEO" title="Video Penjelasan Materi" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>'
                   )
                 }
                 className="text-[10px] font-bold text-stone-700 bg-[#FAF7F2] hover:bg-stone-100 border border-stone-900 px-2 py-0.5 rounded"

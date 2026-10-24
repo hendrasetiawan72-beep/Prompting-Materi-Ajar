@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { PromptFormData, AssessmentType, SubmissionType, OutputFormatType, WorkModeType } from '../types';
+import { PromptFormData, AssessmentType, SubmissionType, OutputFormatType, WorkModeType, BentukSoalType } from '../types';
+import { BENTUK_SOAL_OPTIONS, normalizeBentukSoal } from '../data/presets';
+import { AiMediaPanel } from './AiMediaPanel';
 import {
   ShieldAlert,
   Award,
@@ -41,6 +43,17 @@ export const SectionAsesmenOutput: React.FC<SectionAsesmenOutputProps> = ({
       ...data.quizSettings,
       [key]: value,
     });
+  };
+
+  // Bentuk soal boleh dipilih lebih dari satu (minimal satu bentuk tetap terpilih)
+  const selectedBentuk = normalizeBentukSoal(data.quizSettings.bentukSoal);
+  const hasBentuk = (id: BentukSoalType) => selectedBentuk.includes(id);
+  const toggleBentuk = (id: BentukSoalType) => {
+    const next = BENTUK_SOAL_OPTIONS.map((o) => o.id).filter((x) =>
+      x === id ? !hasBentuk(id) : hasBentuk(x)
+    );
+    if (next.length === 0) return;
+    updateQuiz('bentukSoal', next);
   };
 
   const appScriptCode = `// KODE GOOGLE APPS SCRIPT (doPost) DENGAN LOCKSERVICE 20 DETIK & CEK KUNCI SATU KALI KIRIM
@@ -269,74 +282,72 @@ function doPost(e) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-stone-800 mb-1">
-                  Nama Guru Penerima Laporan
+            <div>
+              <label className="block text-xs font-bold text-stone-800 mb-1">
+                Nama Guru Penerima Laporan
+              </label>
+              <input
+                type="text"
+                value={data.quizSettings.namaGuru}
+                onChange={(e) => updateQuiz('namaGuru', e.target.value)}
+                placeholder="mis. Ibu Ratna Sari, M.Pd."
+                className="w-full px-3 py-1.5 text-xs border-2 border-stone-900 rounded bg-white"
+              />
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-bold text-stone-800">
+                  Bentuk Soal Kuis{' '}
+                  <span className="font-normal text-stone-500">(boleh pilih lebih dari satu)</span>
                 </label>
-                <input
-                  type="text"
-                  value={data.quizSettings.namaGuru}
-                  onChange={(e) => updateQuiz('namaGuru', e.target.value)}
-                  placeholder="mis. Ibu Ratna Sari, M.Pd."
-                  className="w-full px-3 py-1.5 text-xs border-2 border-stone-900 rounded bg-white"
-                />
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="font-mono text-stone-600">{selectedBentuk.length} bentuk dipilih</span>
+                  <button
+                    type="button"
+                    onClick={() => updateQuiz('bentukSoal', BENTUK_SOAL_OPTIONS.map((o) => o.id))}
+                    className="font-bold underline text-stone-700 hover:text-stone-900"
+                  >
+                    Pilih semua
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-stone-800 mb-1">
-                  Bentuk Soal Kuis
-                </label>
-                <select
-                  value={data.quizSettings.bentukSoal}
-                  onChange={(e) => updateQuiz('bentukSoal', e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border-2 border-stone-900 rounded bg-white font-medium"
-                >
-                  <option value="pilihan ganda">Pilihan Ganda Tunggal (1 Jawaban Benar)</option>
-                  <option value="mcma">Pilihan Ganda Kompleks MCMA (Pilih &gt;1 Jawaban Benar / Checkbox)</option>
-                  <option value="pg_kompleks_kategori_3">PG Kompleks Kategori (Tabel 3 Pernyataan Benar/Salah)</option>
-                  <option value="essay">Essay / Uraian Bebas</option>
-                  <option value="campuran pilihan ganda & essay">Campuran (PG Tunggal, MCMA, PGK 3 Pernyataan & Uraian)</option>
-                </select>
-
-                {/* Quick Select Badges */}
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {[
-                    { val: 'pilihan ganda', label: 'PG Tunggal' },
-                    { val: 'mcma', label: 'MCMA (Multi-Jawaban)' },
-                    { val: 'pg_kompleks_kategori_3', label: 'PGK Kategori 3 Pernyataan' },
-                    { val: 'essay', label: 'Essay' },
-                    { val: 'campuran pilihan ganda & essay', label: 'Campuran' },
-                  ].map((item) => (
-                    <button
-                      key={item.val}
-                      type="button"
-                      onClick={() => updateQuiz('bentukSoal', item.val)}
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded border border-stone-900 transition-all ${
-                        data.quizSettings.bentukSoal === item.val
-                          ? 'bg-[#FEF08A] text-stone-900 neo-shadow-sm'
-                          : 'bg-white text-stone-600 hover:bg-stone-100'
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {BENTUK_SOAL_OPTIONS.map((opt) => {
+                  const checked = hasBentuk(opt.id);
+                  return (
+                    <label
+                      key={opt.id}
+                      className={`flex items-start gap-2 px-2.5 py-1.5 text-xs border-2 border-stone-900 rounded cursor-pointer transition-colors ${
+                        checked ? 'bg-[#FEF08A]' : 'bg-white hover:bg-stone-50'
                       }`}
                     >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleBentuk(opt.id)}
+                        className="mt-0.5 rounded border-stone-900 text-stone-900 focus:ring-0"
+                      />
+                      <span>
+                        <span className="font-bold text-stone-900">{opt.label}</span>
+                        <span className="block text-[10px] text-stone-600">{opt.hint}</span>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
             {/* Informational Callout Card for MCMA & PG Kompleks Kategori 3 Pernyataan */}
-            {(data.quizSettings.bentukSoal === 'mcma' ||
-              data.quizSettings.bentukSoal === 'pg_kompleks_kategori_3' ||
-              data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+            {(hasBentuk('mcma') || hasBentuk('pg_kompleks_kategori_3')) && (
               <div className="p-3 bg-[#EFF6FF] border-2 border-blue-900 rounded-md text-xs space-y-2">
                 <div className="flex items-center gap-1.5 font-bold text-blue-950">
                   <ShieldAlert className="w-4 h-4 text-blue-700" />
                   <span>Panduan Bentuk Soal Interaktif AKM / Kurikulum Merdeka</span>
                 </div>
 
-                {(data.quizSettings.bentukSoal === 'mcma' ||
-                  data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+                {hasBentuk('mcma') && (
                   <div className="bg-white p-2.5 rounded border border-blue-300 space-y-1">
                     <span className="font-bold text-blue-900 flex items-center gap-1 text-[11px]">
                       <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
@@ -348,8 +359,7 @@ function doPost(e) {
                   </div>
                 )}
 
-                {(data.quizSettings.bentukSoal === 'pg_kompleks_kategori_3' ||
-                  data.quizSettings.bentukSoal === 'campuran pilihan ganda & essay') && (
+                {hasBentuk('pg_kompleks_kategori_3') && (
                   <div className="bg-white p-2.5 rounded border border-blue-300 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-blue-900 flex items-center gap-1 text-[11px]">
@@ -518,7 +528,7 @@ function doPost(e) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-xs font-bold uppercase text-stone-900 flex items-center gap-1.5">
                   <Image className="w-3.5 h-3.5 text-purple-800" />
-                  Kolom HTML Gambar / Video Soal Kuis (Stimulus Soal)
+                  Kolom HTML Gambar / Video Soal Kuis (Stimulus Soal, opsional)
                 </label>
 
                 <div className="flex items-center gap-1.5">
@@ -539,7 +549,7 @@ function doPost(e) {
                     onClick={() =>
                       onChange(
                         'htmlMediaSoal',
-                        '<div class="aspect-video w-full max-w-md mx-auto my-2 rounded overflow-hidden border border-stone-900"><iframe class="w-full h-full" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Video Kasus Soal" allowfullscreen></iframe></div>'
+                        '<div class="aspect-video w-full max-w-md mx-auto my-2 rounded overflow-hidden border border-stone-900"><iframe class="w-full h-full" src="https://www.youtube.com/embed/GANTI-ID-VIDEO" title="Video Kasus Soal" allowfullscreen></iframe></div>'
                       )
                     }
                     className="text-[10px] font-bold text-stone-700 bg-white hover:bg-stone-100 border border-stone-900 px-2 py-0.5 rounded"
@@ -567,6 +577,13 @@ function doPost(e) {
                   </button>
                 </div>
               </div>
+
+              <AiMediaPanel
+                title="Soal Kuis"
+                keywordPlaceholder="Kata kunci / preferensi (opsional), mis. contoh email phishing, infografis, kanal edukasi berbahasa Indonesia"
+                value={data.aiMedia.soal}
+                onChange={(next) => onChange('aiMedia', { ...data.aiMedia, soal: next })}
+              />
 
               <textarea
                 rows={2}

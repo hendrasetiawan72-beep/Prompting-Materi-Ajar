@@ -89,7 +89,7 @@ export default function App() {
           appScriptUrl: '',
           sheetName: 'Nilai_Siswa',
           namaGuru: '',
-          bentukSoal: 'pilihan ganda',
+          bentukSoal: ['pilihan ganda'],
           hitungNilaiLangsung: true,
           timerDurasi: true,
           timerMenit: 15,
@@ -114,6 +114,7 @@ export default function App() {
         emojiIkon: 'ya',
         htmlMediaMateri: '',
         htmlMediaSoal: '',
+        aiMedia: INITIAL_FORM_DATA.aiMedia,
         catatanKhusus: '',
       });
       showToast('Form berhasil di-reset!');
